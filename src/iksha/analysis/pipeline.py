@@ -8,6 +8,8 @@ orchestration layer.
 
 from dataclasses import dataclass, field
 
+from iksha.config.loader import load_config
+from iksha.config.model import Config
 from iksha.dependency.php_resolver import (
     PHPDependencyResolver,
     ResolutionResult,
@@ -35,6 +37,8 @@ class AnalysisResult:
         default_factory=list
     )
 
+    config: Config | None = None
+
 
 class AnalysisPipeline:
     """
@@ -59,16 +63,29 @@ class AnalysisPipeline:
         source_loader: SourceLoader,
         parser_registry: ParserRegistry,
         dependency_resolver: PHPDependencyResolver,
+        config: Config | None = None,
+        config_diagnostics: list[Diagnostic] | None = None,
     ) -> None:
         self.project = project
         self.source_loader = source_loader
         self.parser_registry = parser_registry
         self.dependency_resolver = dependency_resolver
+        self.config = (
+            config
+            if config is not None
+            else load_config(project.root).config
+        )
+        self.config_diagnostics = list(
+            config_diagnostics or ()
+        )
 
     def run(self) -> AnalysisResult:
         """Run a fresh analysis of the project."""
 
-        result = AnalysisResult()
+        result = AnalysisResult(
+            config=self.config,
+            diagnostics=list(self.config_diagnostics),
+        )
 
         # Ensure the resolver uses the authoritative File objects
         # belonging to this Project.

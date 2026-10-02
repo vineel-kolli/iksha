@@ -1,6 +1,7 @@
 ﻿from pathlib import Path
 
 from iksha.analysis.pipeline import AnalysisPipeline
+from iksha.config.loader import load_config
 from iksha.dependency.php_resolver import PHPDependencyResolver
 from iksha.parsing.php import PHPParser
 from iksha.parsing.registry import ParserRegistry
@@ -239,3 +240,27 @@ def test_pipeline_is_repeatable(
         len(first.unresolved)
         == len(second.unresolved)
     )
+
+
+def test_pipeline_records_resolved_config(tmp_path: Path):
+    project = create_project(tmp_path)
+    loaded = load_config(
+        tmp_path,
+        cli_overrides={"maxFileSizeMB": 7},
+    )
+
+    pipeline = AnalysisPipeline(
+        project=project,
+        source_loader=SourceLoader(),
+        parser_registry=ParserRegistry(),
+        dependency_resolver=PHPDependencyResolver(project.root),
+        config=loaded.config,
+        config_diagnostics=loaded.diagnostics,
+    )
+
+    result = pipeline.run()
+
+    assert result.config is loaded.config
+    assert result.config.max_file_size_mb == 7.0
+    assert result.diagnostics == loaded.diagnostics
+

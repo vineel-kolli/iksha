@@ -1,5 +1,6 @@
 ﻿from pathlib import Path
 
+from iksha.config.loader import load_config
 from iksha.inventory.project_inventory import ProjectInventory
 
 
@@ -32,6 +33,8 @@ def test_ignores_default_directories(tmp_path: Path):
     create_file(tmp_path / "node_modules" / "package.js")
     create_file(tmp_path / "dist" / "bundle.js")
     create_file(tmp_path / "build" / "output.css")
+    create_file(tmp_path / "logs" / "app.js")
+    create_file(tmp_path / "output" / "site.css")
 
     project = ProjectInventory(tmp_path).scan()
 
@@ -148,3 +151,50 @@ def test_empty_project_returns_empty_inventory(tmp_path: Path):
 
     assert project.total_files == 0
     assert project.files == {}
+
+
+def test_inventory_uses_configured_ignore_directories(tmp_path: Path):
+    create_file(tmp_path / "index.php")
+    create_file(tmp_path / "skip_me" / "hidden.php")
+    create_file(tmp_path / "vendor" / "lib.php")
+
+    config = load_config(
+        tmp_path,
+        cli_overrides={"ignore": ["skip_me"]},
+    ).config
+
+    project = ProjectInventory(
+        tmp_path,
+        config=config,
+    ).scan()
+
+    assert project.get_file(tmp_path / "index.php") is not None
+    assert project.get_file(tmp_path / "skip_me" / "hidden.php") is None
+    assert project.get_file(tmp_path / "vendor" / "lib.php") is not None
+
+
+def test_inventory_uses_configured_extensions(tmp_path: Path):
+    create_file(tmp_path / "index.php")
+    create_file(tmp_path / "template.phtml")
+    create_file(tmp_path / "style.css")
+
+    config = load_config(
+        tmp_path,
+        cli_overrides={
+            "extensions": {
+                "php": [".php", ".phtml"],
+            }
+        },
+    ).config
+
+    project = ProjectInventory(
+        tmp_path,
+        config=config,
+    ).scan()
+
+    phtml = project.get_file(tmp_path / "template.phtml")
+
+    assert phtml is not None
+    assert phtml.file_type == "php"
+    assert project.get_file(tmp_path / "style.css") is not None
+

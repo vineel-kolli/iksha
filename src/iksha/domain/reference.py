@@ -7,6 +7,13 @@ from enum import Enum
 
 from .file import File
 from .source_location import SourceLocation
+from .states import Confidence
+
+__all__ = [
+    "Confidence",
+    "Reference",
+    "ReferenceKind",
+]
 
 
 class ReferenceKind(str, Enum):
@@ -21,16 +28,6 @@ class ReferenceKind(str, Enum):
     DOM_SELECTOR = "dom_selector"
     CLASS = "class"
     ID = "id"
-    UNKNOWN = "unknown"
-
-
-class Confidence(str, Enum):
-    """Confidence of a static-analysis observation."""
-
-    CERTAIN = "certain"
-    HIGH = "high"
-    MEDIUM = "medium"
-    LOW = "low"
     UNKNOWN = "unknown"
 
 

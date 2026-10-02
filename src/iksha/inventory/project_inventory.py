@@ -8,6 +8,8 @@ It does not parse source code or analyze dependencies.
 from pathlib import Path
 import os
 
+from iksha.config.loader import load_config
+from iksha.config.model import Config
 from iksha.domain.file import File
 from iksha.domain.project import Project
 
@@ -18,47 +20,23 @@ class ProjectInventory:
     authoritative Project file registry.
     """
 
-    SUPPORTED_EXTENSIONS: dict[str, str] = {
-        ".php": "php",
-        ".html": "html",
-        ".htm": "html",
-        ".css": "css",
-        ".js": "javascript",
-        ".mjs": "javascript",
-        ".cjs": "javascript",
-    }
-
-    DEFAULT_IGNORED_DIRECTORIES: frozenset[str] = frozenset(
-        {
-            ".git",
-            ".venv",
-            "venv",
-            "__pycache__",
-            "node_modules",
-            "vendor",
-            "dist",
-            "build",
-            "coverage",
-            ".pytest_cache",
-        }
-    )
-
     def __init__(
         self,
         root: str | Path,
-        ignored_directories: set[str] | frozenset[str] | None = None,
+        config: Config | None = None,
     ) -> None:
         self.root = Path(root).expanduser().resolve()
 
-        self.ignored_directories = frozenset(
-            name.strip()
-            for name in (
-                self.DEFAULT_IGNORED_DIRECTORIES
-                if ignored_directories is None
-                else ignored_directories
-            )
-            if name.strip()
-        )
+        if config is None:
+            loaded = load_config(self.root)
+            self.config = loaded.config
+            self.config_diagnostics = loaded.diagnostics
+        else:
+            self.config = config
+            self.config_diagnostics = []
+
+        self.ignored_directories = frozenset(self.config.ignore)
+        self.supported_extensions = self.config.extension_types()
 
     def scan(self) -> Project:
         """Discover files and return the populated project."""
@@ -74,9 +52,12 @@ class ProjectInventory:
             if file_type is None:
                 continue
 
-            relative_path = path.relative_to(
-                self.root
-            ).as_posix()
+            try:
+                relative_path = path.relative_to(
+                    self.root
+                ).as_posix()
+            except ValueError:
+                continue
 
             file = File(
                 path=path,
@@ -98,17 +79,32 @@ class ProjectInventory:
         """
 
         discovered: list[Path] = []
+        visited: set[Path] = set()
+        follow_symlinks = self.config.follow_symlinks
 
         for current_root, directories, filenames in os.walk(
-            self.root
+            self.root,
+            followlinks=follow_symlinks,
         ):
+            current_path = Path(current_root)
+
+            try:
+                real_path = current_path.resolve()
+            except OSError:
+                directories[:] = []
+                continue
+
+            if real_path in visited:
+                directories[:] = []
+                continue
+
+            visited.add(real_path)
+
             directories[:] = sorted(
                 directory
                 for directory in directories
                 if directory not in self.ignored_directories
             )
-
-            current_path = Path(current_root)
 
             for filename in sorted(filenames):
                 path = current_path / filename
@@ -129,7 +125,7 @@ class ProjectInventory:
     def _classify(self, path: Path) -> str | None:
         """Return the project file type for a supported extension."""
 
-        return self.SUPPORTED_EXTENSIONS.get(
+        return self.supported_extensions.get(
             path.suffix.lower()
         )
 
