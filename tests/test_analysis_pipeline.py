@@ -10,6 +10,7 @@ from iksha.parsing.defaults import register_default_parsers
 from iksha.parsing.php import PHPParser
 from iksha.parsing.registry import ParserRegistry
 from iksha.source.loader import SourceLoader
+from iksha.domain.states import ReachabilityState
 
 
 def create_project(tmp_path: Path) -> Project:
@@ -357,3 +358,100 @@ def test_pipeline_warns_when_source_is_truncated(
         and "truncated" in diagnostic.message.lower()
         for diagnostic in result.diagnostics
     )
+def test_pipeline_records_reachability_for_configured_entry_points(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "index.php").write_text(
+        '<?php include "header.php"; ?>',
+        encoding="utf-8",
+    )
+
+    (tmp_path / "header.php").write_text(
+        "<?php echo 1; ?>",
+        encoding="utf-8",
+    )
+
+    (tmp_path / "unused.php").write_text(
+        "<?php echo 2; ?>",
+        encoding="utf-8",
+    )
+
+    project = ProjectInventory(
+        tmp_path,
+    ).scan()
+
+    loaded = load_config(
+        tmp_path,
+        cli_overrides={
+            "entryPoints": [
+                "index.php",
+            ],
+        },
+    )
+
+    pipeline = create_analysis_pipeline(
+        project,
+        config=loaded.config,
+    )
+
+    result = pipeline.run()
+
+    assert result.reachability is not None
+
+    index_file = project.get_by_relative_path(
+        "index.php",
+    )
+    header_file = project.get_by_relative_path(
+        "header.php",
+    )
+    unused_file = project.get_by_relative_path(
+        "unused.php",
+    )
+
+    assert index_file is not None
+    assert header_file is not None
+    assert unused_file is not None
+
+    assert result.reachability.state_for(
+        index_file,
+    ) is ReachabilityState.REACHABLE
+
+    assert result.reachability.state_for(
+        header_file,
+    ) is ReachabilityState.REACHABLE
+
+    assert result.reachability.state_for(
+        unused_file,
+    ) is ReachabilityState.UNREACHABLE
+
+
+def test_pipeline_keeps_reachability_unknown_without_entry_points(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "index.php").write_text(
+        "<?php echo 1; ?>",
+        encoding="utf-8",
+    )
+
+    (tmp_path / "style.css").write_text(
+        "body {}",
+        encoding="utf-8",
+    )
+
+    project = ProjectInventory(
+        tmp_path,
+    ).scan()
+
+    pipeline = create_analysis_pipeline(
+        project,
+    )
+
+    result = pipeline.run()
+
+    assert result.reachability is not None
+    assert result.reachability.entry_points == ()
+
+    for file in project.files.values():
+        assert result.reachability.state_for(
+            file,
+        ) is ReachabilityState.UNKNOWN

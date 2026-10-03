@@ -1,13 +1,16 @@
 ﻿"""
 Core analysis pipeline for IKSHA.
 
-Coordinates project sources, parsers, dependency resolvers, and the
-dependency graph without putting language-specific logic into the
-orchestration layer.
+Coordinates project sources, parsers, dependency resolvers, the
+dependency graph, and reachability analysis without putting
+language-specific logic into the orchestration layer.
 """
 
 from dataclasses import dataclass, field
 
+from iksha.analysis.entry_points import EntryPointResolver
+from iksha.analysis.reachability import ReachabilityAnalyzer
+from iksha.analysis.reachability_result import ReachabilityResult
 from iksha.config.loader import load_config
 from iksha.config.model import Config
 from iksha.dependency.registry import ResolverRegistry
@@ -46,6 +49,8 @@ class AnalysisResult:
         default_factory=list
     )
 
+    reachability: ReachabilityResult | None = None
+
     config: Config | None = None
 
 
@@ -61,6 +66,8 @@ class AnalysisPipeline:
     - parse source
     - resolve supported references
     - construct the dependency graph
+    - resolve configured entry points
+    - classify file reachability
     - preserve unresolved references and diagnostics
 
     The pipeline itself contains no language-specific parsing rules.
@@ -183,6 +190,19 @@ class AnalysisPipeline:
                             target=reference.target,
                         )
                     )
+
+        entry_points = EntryPointResolver(
+            self.project,
+        ).resolve(
+            self.config.entry_points,
+        )
+
+        result.reachability = ReachabilityAnalyzer(
+            result.graph,
+        ).analyze(
+            entry_points=entry_points,
+            files=list(self.project.files.values()),
+        )
 
         return result
 
