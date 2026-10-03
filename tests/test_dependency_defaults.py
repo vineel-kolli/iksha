@@ -113,3 +113,84 @@ def test_default_resolver_types_are_registered(
         resolvers[1],
         CSSDependencyResolver,
     )
+
+def test_default_resolvers_resolve_php_and_css_dependencies(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "index.php").write_text(
+        '<?php include "header.php"; ?>',
+        encoding="utf-8",
+    )
+
+    (tmp_path / "header.php").write_text(
+        "<?php echo 1; ?>",
+        encoding="utf-8",
+    )
+
+    (tmp_path / "main.css").write_text(
+        '@import "theme.css";',
+        encoding="utf-8",
+    )
+
+    (tmp_path / "theme.css").write_text(
+        "body {}",
+        encoding="utf-8",
+    )
+
+    project = ProjectInventory(
+        tmp_path,
+    ).scan()
+
+    registry = register_default_resolvers(
+        project,
+    )
+
+    registry.index_files(
+        list(project.files.values())
+    )
+
+    php_source = project.get_by_relative_path(
+        "index.php",
+    )
+    css_source = project.get_by_relative_path(
+        "main.css",
+    )
+
+    assert php_source is not None
+    assert css_source is not None
+
+    php_observation = Observation(
+        source=php_source,
+        kind=ReferenceKind.INCLUDE,
+        value="header.php",
+    )
+
+    css_observation = Observation(
+        source=css_source,
+        kind=ReferenceKind.IMPORT,
+        value="theme.css",
+    )
+
+    php_result = registry.resolve(
+        php_observation,
+    )
+
+    css_result = registry.resolve(
+        css_observation,
+    )
+
+    php_target = project.get_by_relative_path(
+        "header.php",
+    )
+    css_target = project.get_by_relative_path(
+        "theme.css",
+    )
+
+    assert php_target is not None
+    assert css_target is not None
+
+    assert php_result.target is php_target
+    assert php_result.resolved is True
+
+    assert css_result.target is css_target
+    assert css_result.resolved is True
