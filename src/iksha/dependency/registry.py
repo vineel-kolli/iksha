@@ -17,6 +17,14 @@ class ResolverRegistry:
     ) -> None:
         self._resolvers = list(resolvers)
 
+    def add(
+        self,
+        resolver: ReferenceResolver,
+    ) -> None:
+        """Register one dependency resolver."""
+
+        self._resolvers.append(resolver)
+
     def handles(
         self,
         observation: Observation,
