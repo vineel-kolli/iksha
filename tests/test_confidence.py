@@ -54,3 +54,13 @@ def test_unknown_confidence_has_no_computable_percent():
 
     assert score.percent is None
     assert score.band is Confidence.UNKNOWN
+
+
+def test_confidence_score_from_band_uses_default_percent():
+    score = ConfidenceScore.from_band(Confidence.CERTAIN)
+
+    assert score.band is Confidence.CERTAIN
+    assert score.percent == 96.0
+    assert (
+        ConfidenceScore.from_band(Confidence.UNKNOWN).percent is None
+    )

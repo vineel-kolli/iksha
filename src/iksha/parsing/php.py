@@ -10,7 +10,6 @@ path against the project filesystem.
 
 from iksha.domain.file import File
 from iksha.domain.reference import Confidence, ReferenceKind
-from iksha.domain.source_location import SourceLocation
 from iksha.parsing.result import Observation, ParseResult
 from iksha.source.document import SourceDocument
 
@@ -100,6 +99,7 @@ class PHPParser:
 
                 if word in self._KEYWORDS:
                     observation = self._parse_reference(
+                        document=document,
                         text=text,
                         keyword_start=start,
                         keyword_end=i,
@@ -120,6 +120,7 @@ class PHPParser:
 
     def _parse_reference(
         self,
+        document: SourceDocument,
         text: str,
         keyword_start: int,
         keyword_end: int,
@@ -148,10 +149,7 @@ class PHPParser:
         if i >= length:
             return None
 
-        location = self._location(
-            text,
-            keyword_start,
-        )
+        location = document.location_at(keyword_start)
 
         # -----------------------------------------
         # Static quoted path
@@ -283,30 +281,4 @@ class PHPParser:
         return (
             character.isalnum()
             or character == "_"
-        )
-
-    @staticmethod
-    def _location(
-        text: str,
-        offset: int,
-    ) -> SourceLocation:
-        """Convert a character offset into a source location."""
-
-        line = text.count("\n", 0, offset) + 1
-
-        last_newline = text.rfind(
-            "\n",
-            0,
-            offset,
-        )
-
-        column = (
-            offset + 1
-            if last_newline == -1
-            else offset - last_newline
-        )
-
-        return SourceLocation(
-            line=line,
-            column=column,
         )

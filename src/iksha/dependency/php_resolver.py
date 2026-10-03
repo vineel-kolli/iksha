@@ -53,6 +53,17 @@ class PHPDependencyResolver:
             PHPStaticPathEvaluator()
         )
 
+    def handles(
+        self,
+        observation: Observation,
+    ) -> bool:
+        """Return whether this resolver owns the observation kind."""
+
+        return observation.kind in {
+            ReferenceKind.INCLUDE,
+            ReferenceKind.REQUIRE,
+        }
+
     def index_files(
         self,
         files: list[File],
@@ -137,6 +148,7 @@ class PHPDependencyResolver:
         return [
             self.resolve(observation)
             for observation in observations
+            if self.handles(observation)
         ]
 
     def _resolve_expression(

@@ -1,5 +1,7 @@
 ﻿from pathlib import Path
 
+import pytest
+
 from iksha.config.loader import load_config
 from iksha.inventory.project_inventory import ProjectInventory
 
@@ -197,4 +199,84 @@ def test_inventory_uses_configured_extensions(tmp_path: Path):
     assert phtml is not None
     assert phtml.file_type == "php"
     assert project.get_file(tmp_path / "style.css") is not None
+
+
+def test_inventory_flags_minified_and_generated_files(tmp_path: Path):
+    create_file(tmp_path / "css" / "app.min.css", "body{color:red}")
+    create_file(tmp_path / "js" / "app.min.js", "console.log(1)")
+    create_file(
+        tmp_path / "css" / "wide.css",
+        "a" * 2001,
+    )
+    create_file(tmp_path / "normal.css", "body { color: red; }\n")
+    create_file(tmp_path / "generated" / "theme.css", ".ok{}")
+    create_file(tmp_path / "cards.generated.css", ".card{}")
+
+    project = ProjectInventory(tmp_path).scan()
+
+    min_css = project.get_file(tmp_path / "css" / "app.min.css")
+    min_js = project.get_file(tmp_path / "js" / "app.min.js")
+    wide = project.get_file(tmp_path / "css" / "wide.css")
+    normal = project.get_file(tmp_path / "normal.css")
+    generated_dir = project.get_file(tmp_path / "generated" / "theme.css")
+    generated_name = project.get_file(tmp_path / "cards.generated.css")
+
+    assert min_css is not None and min_css.minified is True
+    assert min_js is not None and min_js.minified is True
+    assert wide is not None and wide.minified is True
+    assert normal is not None and normal.minified is False
+    assert generated_dir is not None
+    assert generated_dir.generated is True
+    assert generated_dir.ignored is False
+    assert generated_name is not None and generated_name.generated is True
+    assert project.total_files == 6
+
+
+def test_inventory_lookups_use_project_indexes(tmp_path: Path):
+    create_file(tmp_path / "css" / "main.css")
+    create_file(tmp_path / "admin" / "css" / "main.css")
+    create_file(tmp_path / "index.php")
+
+    project = ProjectInventory(tmp_path).scan()
+
+    assert project.get_by_relative_path("index.php") is not None
+    assert len(project.files_named("main.css")) == 2
+    assert len(project.files_with_extension("css")) == 2
+    assert len(project.files_of_type("php")) == 1
+
+
+def test_symlink_file_identity_is_the_real_path(tmp_path: Path):
+    create_file(tmp_path / "real.php", "<?php echo 1;")
+    alias = tmp_path / "alias.php"
+
+    try:
+        alias.symlink_to(tmp_path / "real.php")
+    except OSError:
+        pytest.skip("symlinks are not available on this system")
+
+    project = ProjectInventory(tmp_path).scan()
+
+    real = project.get_file(tmp_path / "real.php")
+
+    assert real is not None
+    assert project.total_files == 1
+    assert project.get_file(alias) is real
+    assert real.relative_path == "real.php"
+
+
+def test_symlink_directories_are_not_followed_by_default(tmp_path: Path):
+    create_file(tmp_path / "real" / "inside.php", "<?php")
+    link = tmp_path / "linked"
+
+    try:
+        link.symlink_to(tmp_path / "real", target_is_directory=True)
+    except OSError:
+        pytest.skip("directory symlinks are not available on this system")
+
+    project = ProjectInventory(tmp_path).scan()
+
+    assert project.get_file(tmp_path / "real" / "inside.php") is not None
+    assert project.get_by_relative_path("linked/inside.php") is None
+    assert project.total_files == 1
+
 

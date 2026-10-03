@@ -11,6 +11,14 @@ from .states import Confidence
 
 CONFIDENCE_MAPPING_VERSION = "1.0"
 
+_BAND_PERCENT: dict[Confidence, float | None] = {
+    Confidence.CERTAIN: 96.0,
+    Confidence.HIGH: 87.0,
+    Confidence.MEDIUM: 65.0,
+    Confidence.LOW: 35.0,
+    Confidence.UNKNOWN: None,
+}
+
 
 def confidence_band(percent: float | None) -> Confidence:
     """
@@ -64,6 +72,18 @@ class ConfidenceScore:
         return cls(
             percent=percent,
             band=confidence_band(percent),
+        )
+
+    @classmethod
+    def from_band(
+        cls,
+        band: Confidence,
+    ) -> "ConfidenceScore":
+        """Build a score from a categorical band using the default mapping."""
+
+        return cls(
+            percent=_BAND_PERCENT[band],
+            band=band,
         )
 
     @classmethod

@@ -15,9 +15,12 @@ from iksha.dependency.php_resolver import (
     ResolutionResult,
 )
 from iksha.domain.project import Project
+from iksha.domain.reference import FILE_DEPENDENCY_KINDS, Reference
+from iksha.domain.resolution import ResolutionStatus
 from iksha.graph.dependency import DependencyGraph
 from iksha.parsing.registry import ParserRegistry
-from iksha.parsing.result import Diagnostic
+from iksha.parsing.result import Diagnostic, Observation
+from iksha.references.extractor import ReferenceExtractor
 from iksha.source.loader import SourceLoader
 
 
@@ -34,6 +37,14 @@ class AnalysisResult:
     )
 
     diagnostics: list[Diagnostic] = field(
+        default_factory=list
+    )
+
+    observations: list[Observation] = field(
+        default_factory=list
+    )
+
+    references: list[Reference] = field(
         default_factory=list
     )
 
@@ -93,6 +104,11 @@ class AnalysisPipeline:
             list(self.project.files.values())
         )
 
+        extractor = ReferenceExtractor(
+            self.project,
+            self.dependency_resolver,
+        )
+
         for file in self._project_files():
             parser = self.parser_registry.get(
                 file.file_type
@@ -101,7 +117,7 @@ class AnalysisPipeline:
             if parser is None:
                 continue
 
-            document = self.source_loader.load(file.path)
+            document = self.source_loader.load(file)
 
             if not document.success:
                 result.diagnostics.append(
@@ -116,6 +132,17 @@ class AnalysisPipeline:
                 )
                 continue
 
+            if document.truncated:
+                result.diagnostics.append(
+                    Diagnostic(
+                        message=(
+                            "File exceeds maxFileSizeMB and was truncated"
+                        ),
+                        severity="warning",
+                        source=file,
+                    )
+                )
+
             parse_result = parser.parse(
                 file,
                 document,
@@ -124,23 +151,39 @@ class AnalysisPipeline:
             result.diagnostics.extend(
                 parse_result.diagnostics
             )
-
-            resolutions = (
-                self.dependency_resolver.resolve_all(
-                    parse_result.observations
-                )
+            result.observations.extend(
+                parse_result.observations
             )
 
-            for resolution in resolutions:
-                if resolution.resolved:
+            for observation in parse_result.observations:
+                reference = extractor.extract(observation)
+
+                if reference is None:
+                    continue
+
+                result.references.append(reference)
+
+                if (
+                    reference.resolved
+                    and reference.target is not None
+                ):
                     result.graph.add(
                         source=file,
-                        target=resolution.target,
-                        observation=resolution.observation,
+                        target=reference.target,
+                        observation=observation,
                     )
-                else:
+                    continue
+
+                if (
+                    reference.kind in FILE_DEPENDENCY_KINDS
+                    and reference.status
+                    is not ResolutionStatus.EXTERNAL
+                ):
                     result.unresolved.append(
-                        resolution
+                        ResolutionResult(
+                            observation=observation,
+                            target=reference.target,
+                        )
                     )
 
         return result

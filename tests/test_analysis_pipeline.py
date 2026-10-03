@@ -3,11 +3,13 @@
 from iksha.analysis.pipeline import AnalysisPipeline
 from iksha.config.loader import load_config
 from iksha.dependency.php_resolver import PHPDependencyResolver
+from iksha.domain.reference import ReferenceKind
+from iksha.inventory.project_inventory import ProjectInventory
+from iksha.parsing.defaults import register_default_parsers
 from iksha.parsing.php import PHPParser
 from iksha.parsing.registry import ParserRegistry
 from iksha.source.loader import SourceLoader
 from iksha.domain.project import Project
-from iksha.inventory.project_inventory import ProjectInventory
 
 
 def create_project(tmp_path: Path) -> Project:
@@ -263,4 +265,77 @@ def test_pipeline_records_resolved_config(tmp_path: Path):
     assert result.config is loaded.config
     assert result.config.max_file_size_mb == 7.0
     assert result.diagnostics == loaded.diagnostics
+
+
+def test_pipeline_keeps_html_observations_without_php_unresolved(
+    tmp_path: Path,
+):
+    (tmp_path / "index.html").write_text(
+        '<link rel="stylesheet" href="css/main.css">',
+        encoding="utf-8",
+    )
+    (tmp_path / "css").mkdir()
+    (tmp_path / "css" / "main.css").write_text(
+        "body {}",
+        encoding="utf-8",
+    )
+
+    project = ProjectInventory(tmp_path).scan()
+    pipeline = AnalysisPipeline(
+        project=project,
+        source_loader=SourceLoader(),
+        parser_registry=register_default_parsers(),
+        dependency_resolver=PHPDependencyResolver(project.root),
+    )
+
+    result = pipeline.run()
+    kinds = [item.kind for item in result.observations]
+
+    assert ReferenceKind.STYLESHEET in kinds
+    assert result.unresolved == []
+    assert result.graph.edge_count == 1
+    assert any(
+        item.status.value == "resolved"
+        for item in result.references
+    )
+
+
+
+def test_pipeline_warns_when_source_is_truncated(tmp_path: Path):
+    (tmp_path / "index.php").write_text(
+        '<?php include "header.php"; ?>',
+        encoding="utf-8",
+    )
+    (tmp_path / "header.php").write_text(
+        "<?php echo 1; ?>",
+        encoding="utf-8",
+    )
+
+    project = ProjectInventory(tmp_path).scan()
+    registry = ParserRegistry()
+    registry.register("php", PHPParser())
+
+    pipeline = AnalysisPipeline(
+        project=project,
+        source_loader=SourceLoader(
+            max_file_size_mb=1 / (1024 * 1024),
+        ),
+        parser_registry=registry,
+        dependency_resolver=PHPDependencyResolver(project.root),
+    )
+
+    result = pipeline.run()
+
+    warnings = [
+        diagnostic
+        for diagnostic in result.diagnostics
+        if diagnostic.severity == "warning"
+        and "truncated" in diagnostic.message
+    ]
+
+    assert warnings
+    assert all(
+        diagnostic.source is not None
+        for diagnostic in warnings
+    )
 

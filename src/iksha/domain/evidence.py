@@ -7,25 +7,18 @@ the observation is.
 """
 
 from dataclasses import dataclass, field
-from enum import Enum
 
 from .confidence import ConfidenceScore
 from .file import File
 from .reference import ReferenceKind
+from .resolution import ResolutionStrategy
 from .source_location import SourceLocation
 from .states import Confidence
 
-
-class ResolutionStrategy(str, Enum):
-    """Method used to turn a raw reference string into a target."""
-
-    SOURCE_RELATIVE = "source-relative"
-    PROJECT_RELATIVE = "project-relative"
-    ABSOLUTE = "absolute"
-    IMPORT_RELATIVE = "import-relative"
-    URL = "url"
-    DYNAMIC = "dynamic"
-    UNKNOWN = "unknown"
+__all__ = [
+    "Evidence",
+    "ResolutionStrategy",
+]
 
 
 @dataclass(frozen=True)

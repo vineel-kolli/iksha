@@ -197,6 +197,15 @@ def test_source_location_rejects_invalid_line():
         )
 
 
+def test_source_location_rejects_negative_offset():
+    with pytest.raises(ValueError):
+        SourceLocation(
+            line=1,
+            column=1,
+            offset=-1,
+        )
+
+
 def test_reference_preserves_evidence():
     root = Path("project").resolve()
 
@@ -232,3 +241,105 @@ def test_reference_preserves_evidence():
     assert reference.location.line == 12
     assert reference.confidence == Confidence.CERTAIN
     assert reference.resolved is True
+
+
+def test_file_inventory_flags_default_to_source_file():
+    file = File(
+        path=Path("style.css"),
+        relative_path="style.css",
+        file_type="css",
+    )
+
+    assert file.readable is True
+    assert file.parseable is True
+    assert file.ignored is False
+    assert file.generated is False
+    assert file.minified is False
+    assert file.source_error is None
+
+
+def test_file_name_uses_on_disk_relative_path():
+    file = File(
+        path=Path("css/main.css"),
+        relative_path="css/Main.css",
+        file_type="css",
+    )
+
+    assert file.name == "Main.css"
+    assert file.extension == ".css"
+
+
+def test_project_looks_up_files_by_relative_name_extension_and_type(
+    tmp_path: Path,
+):
+    css = tmp_path / "css"
+    admin = tmp_path / "admin" / "css"
+    css.mkdir()
+    admin.mkdir(parents=True)
+
+    root_main = css / "main.css"
+    admin_main = admin / "main.css"
+    app = tmp_path / "app.js"
+
+    root_main.write_text("", encoding="utf-8")
+    admin_main.write_text("", encoding="utf-8")
+    app.write_text("", encoding="utf-8")
+
+    project = Project(root=tmp_path)
+
+    root_file = File(
+        path=root_main,
+        relative_path="css/main.css",
+        file_type="css",
+    )
+    admin_file = File(
+        path=admin_main,
+        relative_path="admin/css/main.css",
+        file_type="css",
+    )
+    js_file = File(
+        path=app,
+        relative_path="app.js",
+        file_type="javascript",
+    )
+
+    project.add_file(root_file)
+    project.add_file(admin_file)
+    project.add_file(js_file)
+
+    assert project.get_by_relative_path("css/main.css") is root_file
+    assert project.get_by_relative_path("css/main.css?v=2") is root_file
+    assert project.files_named("main.css") == (
+        root_file,
+        admin_file,
+    )
+    assert set(project.files_with_extension(".css")) == {
+        root_file,
+        admin_file,
+    }
+    assert project.files_of_type("javascript") == (js_file,)
+
+
+def test_case_insensitive_project_merges_case_variants(tmp_path: Path):
+    css = tmp_path / "css"
+    css.mkdir()
+    main = css / "Main.css"
+    main.write_text("body{}", encoding="utf-8")
+
+    project = Project(
+        root=tmp_path,
+        case_sensitive=False,
+    )
+
+    file = File(
+        path=main,
+        relative_path="css/Main.css",
+        file_type="css",
+    )
+
+    project.add_file(file)
+
+    assert project.get_file(css / "main.css") is file
+    assert project.get_by_relative_path("CSS/MAIN.CSS") is file
+    assert project.files_named("MAIN.CSS") == (file,)
+
