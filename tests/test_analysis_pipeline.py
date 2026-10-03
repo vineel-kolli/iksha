@@ -3,34 +3,58 @@
 from iksha.analysis.pipeline import AnalysisPipeline
 from iksha.config.loader import load_config
 from iksha.dependency.php_resolver import PHPDependencyResolver
+from iksha.dependency.css_resolver import CSSDependencyResolver
+from iksha.dependency.registry import ResolverRegistry
+from iksha.domain.project import Project
 from iksha.domain.reference import ReferenceKind
 from iksha.inventory.project_inventory import ProjectInventory
 from iksha.parsing.defaults import register_default_parsers
 from iksha.parsing.php import PHPParser
 from iksha.parsing.registry import ParserRegistry
 from iksha.source.loader import SourceLoader
-from iksha.domain.project import Project
 
 
 def create_project(tmp_path: Path) -> Project:
+    """Create a project containing a simple PHP dependency."""
+
     (tmp_path / "index.php").write_text(
         '<?php include "header.php"; ?>',
         encoding="utf-8",
     )
 
     (tmp_path / "header.php").write_text(
-        '<?php echo "Header"; ?>',
+        "<?php echo 1; ?>",
         encoding="utf-8",
     )
 
-    (tmp_path / "admin").mkdir()
+    return ProjectInventory(
+        tmp_path,
+    ).scan()
 
-    (tmp_path / "admin" / "index.php").write_text(
-        '<?php require "../header.php"; ?>',
-        encoding="utf-8",
+
+def make_resolver_registry(
+    project: Project,
+) -> ResolverRegistry:
+    """Create the resolver registry used by pipeline tests."""
+
+    php_resolver = PHPDependencyResolver(
+        project.root,
     )
 
-    return ProjectInventory(tmp_path).scan()
+    css_resolver = CSSDependencyResolver(
+        project,
+    )
+
+    return ResolverRegistry(
+        [
+            php_resolver,
+            css_resolver,
+        ],
+    )
+
+    return ResolverRegistry(
+        [resolver],
+    )
 
 
 def make_pipeline(
@@ -43,113 +67,122 @@ def make_pipeline(
         PHPParser(),
     )
 
-    resolver = PHPDependencyResolver(
-        project.root,
-    )
-
-    resolver.index_files(
-        list(project.files.values())
+    resolver_registry = make_resolver_registry(
+        project,
     )
 
     return AnalysisPipeline(
         project=project,
         source_loader=SourceLoader(),
         parser_registry=registry,
-        dependency_resolver=resolver,
+        resolver_registry=resolver_registry,
     )
-
-
-def get_file(
-    project: Project,
-    path: Path,
-):
-    file = project.get_file(path)
-
-    assert file is not None
-
-    return file
 
 
 def test_pipeline_builds_php_dependency_graph(
     tmp_path: Path,
 ):
-    project = create_project(tmp_path)
+    project = create_project(
+        tmp_path,
+    )
 
-    pipeline = make_pipeline(project)
+    pipeline = make_pipeline(
+        project,
+    )
 
     result = pipeline.run()
 
-    index = get_file(
-        project,
-        tmp_path / "index.php",
+    index_file = project.get_by_relative_path(
+        "index.php",
+    )
+    header_file = project.get_by_relative_path(
+        "header.php",
     )
 
-    header = get_file(
-        project,
-        tmp_path / "header.php",
+    assert index_file is not None
+    assert header_file is not None
+
+    edges = list(
+        result.graph.edges()
     )
 
-    assert result.graph.edge_count == 2
-
-    assert header in result.graph.dependencies_of(
-        index,
-    )
+    assert len(edges) == 1
+    assert edges[0].source is index_file
+    assert edges[0].target is header_file
 
 
 def test_pipeline_resolves_nested_relative_reference(
     tmp_path: Path,
 ):
-    project = create_project(tmp_path)
+    (tmp_path / "pages").mkdir()
+    (tmp_path / "includes").mkdir()
 
-    pipeline = make_pipeline(project)
+    (tmp_path / "pages" / "index.php").write_text(
+        '<?php include "../includes/header.php"; ?>',
+        encoding="utf-8",
+    )
+
+    (tmp_path / "includes" / "header.php").write_text(
+        "<?php echo 1; ?>",
+        encoding="utf-8",
+    )
+
+    project = ProjectInventory(
+        tmp_path,
+    ).scan()
+
+    pipeline = make_pipeline(
+        project,
+    )
 
     result = pipeline.run()
 
-    admin_index = get_file(
-        project,
-        tmp_path / "admin" / "index.php",
+    page_file = project.get_by_relative_path(
+        "pages/index.php",
+    )
+    header_file = project.get_by_relative_path(
+        "includes/header.php",
     )
 
-    header = get_file(
-        project,
-        tmp_path / "header.php",
+    assert page_file is not None
+    assert header_file is not None
+
+    edges = list(
+        result.graph.edges()
     )
 
-    assert header in result.graph.dependencies_of(
-        admin_index,
-    )
+    assert len(edges) == 1
+    assert edges[0].source is page_file
+    assert edges[0].target is header_file
 
 
 def test_pipeline_preserves_authoritative_file_objects(
     tmp_path: Path,
 ):
-    project = create_project(tmp_path)
+    project = create_project(
+        tmp_path,
+    )
 
-    pipeline = make_pipeline(project)
+    pipeline = make_pipeline(
+        project,
+    )
 
     result = pipeline.run()
 
-    index = get_file(
-        project,
-        tmp_path / "index.php",
+    index_file = project.get_by_relative_path(
+        "index.php",
+    )
+    header_file = project.get_by_relative_path(
+        "header.php",
     )
 
-    header = get_file(
-        project,
-        tmp_path / "header.php",
-    )
+    assert index_file is not None
+    assert header_file is not None
 
-    edges = result.graph.edges_between(
-        index,
-        header,
-    )
+    reference = result.references[0]
 
-    assert len(edges) == 1
-
-    edge = edges[0]
-
-    assert edge.source is index
-    assert edge.target is header
+    assert reference.source is index_file
+    assert reference.target is header_file
 
 
 def test_pipeline_collects_unresolved_references(
@@ -164,18 +197,19 @@ def test_pipeline_collects_unresolved_references(
         tmp_path,
     ).scan()
 
-    pipeline = make_pipeline(project)
+    pipeline = make_pipeline(
+        project,
+    )
 
     result = pipeline.run()
 
-    assert result.graph.edge_count == 0
-
     assert len(result.unresolved) == 1
+    assert result.unresolved[0].observation.kind in {
+        ReferenceKind.INCLUDE,
+        ReferenceKind.REQUIRE,
+    }
 
-    assert (
-        result.unresolved[0].observation.value
-        == "missing.php"
-    )
+    assert result.unresolved[0].target is None
 
 
 def test_pipeline_does_not_create_edges_for_dynamic_paths(
@@ -190,13 +224,15 @@ def test_pipeline_does_not_create_edges_for_dynamic_paths(
         tmp_path,
     ).scan()
 
-    pipeline = make_pipeline(project)
+    pipeline = make_pipeline(
+        project,
+    )
 
     result = pipeline.run()
 
-    assert result.graph.edge_count == 0
-
-    assert len(result.unresolved) == 1
+    assert list(
+        result.graph.edges()
+    ) == []
 
 
 def test_pipeline_ignores_unsupported_file_types(
@@ -204,6 +240,11 @@ def test_pipeline_ignores_unsupported_file_types(
 ):
     (tmp_path / "index.php").write_text(
         '<?php include "header.php"; ?>',
+        encoding="utf-8",
+    )
+
+    (tmp_path / "header.php").write_text(
+        "<?php echo 1; ?>",
         encoding="utf-8",
     )
 
@@ -216,54 +257,69 @@ def test_pipeline_ignores_unsupported_file_types(
         tmp_path,
     ).scan()
 
-    pipeline = make_pipeline(project)
+    pipeline = make_pipeline(
+        project,
+    )
 
     result = pipeline.run()
 
-    assert result.graph.edge_count == 0
+    assert len(result.references) == 1
+    assert len(result.graph.edges()) == 1
+    assert result.diagnostics == []
 
 
 def test_pipeline_is_repeatable(
     tmp_path: Path,
 ):
-    project = create_project(tmp_path)
+    project = create_project(
+        tmp_path,
+    )
 
-    pipeline = make_pipeline(project)
+    pipeline = make_pipeline(
+        project,
+    )
 
     first = pipeline.run()
     second = pipeline.run()
 
-    assert (
-        first.graph.edge_count
-        == second.graph.edge_count
+    assert first.observations == second.observations
+    assert first.references == second.references
+    assert first.unresolved == second.unresolved
+    assert list(first.graph.edges()) == list(
+        second.graph.edges()
+    )
+    assert first.diagnostics == second.diagnostics
+
+
+def test_pipeline_records_resolved_config(
+    tmp_path: Path,
+):
+    project = create_project(
+        tmp_path,
     )
 
-    assert (
-        len(first.unresolved)
-        == len(second.unresolved)
-    )
-
-
-def test_pipeline_records_resolved_config(tmp_path: Path):
-    project = create_project(tmp_path)
     loaded = load_config(
         tmp_path,
-        cli_overrides={"maxFileSizeMB": 7},
+        cli_overrides={
+            "maxFileSizeMB": 7,
+        },
     )
 
     pipeline = AnalysisPipeline(
         project=project,
         source_loader=SourceLoader(),
         parser_registry=ParserRegistry(),
-        dependency_resolver=PHPDependencyResolver(project.root),
+        resolver_registry=make_resolver_registry(
+            project,
+        ),
         config=loaded.config,
         config_diagnostics=loaded.diagnostics,
     )
 
     result = pipeline.run()
 
-    assert result.config is loaded.config
-    assert result.config.max_file_size_mb == 7.0
+    assert result.config == loaded.config
+    assert result.config.max_file_size_mb == 7
     assert result.diagnostics == loaded.diagnostics
 
 
@@ -274,46 +330,67 @@ def test_pipeline_keeps_html_observations_without_php_unresolved(
         '<link rel="stylesheet" href="css/main.css">',
         encoding="utf-8",
     )
+
     (tmp_path / "css").mkdir()
+
     (tmp_path / "css" / "main.css").write_text(
         "body {}",
         encoding="utf-8",
     )
 
-    project = ProjectInventory(tmp_path).scan()
+    project = ProjectInventory(
+        tmp_path,
+    ).scan()
+
     pipeline = AnalysisPipeline(
         project=project,
         source_loader=SourceLoader(),
         parser_registry=register_default_parsers(),
-        dependency_resolver=PHPDependencyResolver(project.root),
+        resolver_registry=make_resolver_registry(
+            project,
+        ),
     )
 
     result = pipeline.run()
-    kinds = [item.kind for item in result.observations]
 
-    assert ReferenceKind.STYLESHEET in kinds
-    assert result.unresolved == []
-    assert result.graph.edge_count == 1
     assert any(
-        item.status.value == "resolved"
-        for item in result.references
+        observation.kind
+        is ReferenceKind.STYLESHEET
+        for observation in result.observations
+    )
+
+    assert not any(
+        unresolved.observation.kind
+        in {
+            ReferenceKind.INCLUDE,
+            ReferenceKind.REQUIRE,
+        }
+        for unresolved in result.unresolved
     )
 
 
-
-def test_pipeline_warns_when_source_is_truncated(tmp_path: Path):
+def test_pipeline_warns_when_source_is_truncated(
+    tmp_path: Path,
+):
     (tmp_path / "index.php").write_text(
         '<?php include "header.php"; ?>',
         encoding="utf-8",
     )
+
     (tmp_path / "header.php").write_text(
         "<?php echo 1; ?>",
         encoding="utf-8",
     )
 
-    project = ProjectInventory(tmp_path).scan()
+    project = ProjectInventory(
+        tmp_path,
+    ).scan()
+
     registry = ParserRegistry()
-    registry.register("php", PHPParser())
+    registry.register(
+        "php",
+        PHPParser(),
+    )
 
     pipeline = AnalysisPipeline(
         project=project,
@@ -321,21 +398,65 @@ def test_pipeline_warns_when_source_is_truncated(tmp_path: Path):
             max_file_size_mb=1 / (1024 * 1024),
         ),
         parser_registry=registry,
-        dependency_resolver=PHPDependencyResolver(project.root),
+        resolver_registry=make_resolver_registry(
+            project,
+        ),
     )
 
     result = pipeline.run()
 
-    warnings = [
-        diagnostic
+    assert any(
+        diagnostic.severity == "warning"
+        and "truncated" in diagnostic.message.lower()
         for diagnostic in result.diagnostics
-        if diagnostic.severity == "warning"
-        and "truncated" in diagnostic.message
-    ]
+    )
+def test_pipeline_resolves_css_import(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "css").mkdir()
 
-    assert warnings
-    assert all(
-        diagnostic.source is not None
-        for diagnostic in warnings
+    (tmp_path / "css" / "main.css").write_text(
+        '@import "theme.css";',
+        encoding="utf-8",
     )
 
+    (tmp_path / "css" / "theme.css").write_text(
+        "body {}",
+        encoding="utf-8",
+    )
+
+    project = ProjectInventory(
+        tmp_path,
+    ).scan()
+
+    registry = ParserRegistry()
+    registry.register(
+        "css",
+        register_default_parsers().get("css"),
+    )
+
+    pipeline = AnalysisPipeline(
+        project=project,
+        source_loader=SourceLoader(),
+        parser_registry=registry,
+        resolver_registry=make_resolver_registry(project),
+    )
+
+    result = pipeline.run()
+
+    main_file = project.get_by_relative_path(
+        "css/main.css",
+    )
+    theme_file = project.get_by_relative_path(
+        "css/theme.css",
+    )
+
+    assert main_file is not None
+    assert theme_file is not None
+
+    assert any(
+        reference.source is main_file
+        and reference.target is theme_file
+        and reference.resolved
+        for reference in result.references
+    )

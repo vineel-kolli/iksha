@@ -10,10 +10,8 @@ from dataclasses import dataclass, field
 
 from iksha.config.loader import load_config
 from iksha.config.model import Config
-from iksha.dependency.php_resolver import (
-    PHPDependencyResolver,
-    ResolutionResult,
-)
+from iksha.dependency.registry import ResolverRegistry
+from iksha.dependency.result import ResolutionResult
 from iksha.domain.project import Project
 from iksha.domain.reference import FILE_DEPENDENCY_KINDS, Reference
 from iksha.domain.resolution import ResolutionStatus
@@ -73,14 +71,14 @@ class AnalysisPipeline:
         project: Project,
         source_loader: SourceLoader,
         parser_registry: ParserRegistry,
-        dependency_resolver: PHPDependencyResolver,
+        resolver_registry: ResolverRegistry,
         config: Config | None = None,
         config_diagnostics: list[Diagnostic] | None = None,
     ) -> None:
         self.project = project
         self.source_loader = source_loader
         self.parser_registry = parser_registry
-        self.dependency_resolver = dependency_resolver
+        self.resolver_registry = resolver_registry
         self.config = (
             config
             if config is not None
@@ -98,15 +96,15 @@ class AnalysisPipeline:
             diagnostics=list(self.config_diagnostics),
         )
 
-        # Ensure the resolver uses the authoritative File objects
+        # Ensure every resolver uses the authoritative File objects
         # belonging to this Project.
-        self.dependency_resolver.index_files(
+        self.resolver_registry.index_files(
             list(self.project.files.values())
         )
 
         extractor = ReferenceExtractor(
             self.project,
-            self.dependency_resolver,
+            self.resolver_registry,
         )
 
         for file in self._project_files():
@@ -198,4 +196,3 @@ class AnalysisPipeline:
                 file.relative_path,
             ),
         )
-

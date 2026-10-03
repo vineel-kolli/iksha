@@ -7,7 +7,7 @@ strategy, and (when possible) an authoritative project File target.
 
 from pathlib import Path
 
-from iksha.dependency.php_resolver import PHPDependencyResolver
+from iksha.dependency.registry import ResolverRegistry
 from iksha.domain.confidence import ConfidenceScore
 from iksha.domain.evidence import Evidence
 from iksha.domain.file import File
@@ -32,7 +32,7 @@ class ReferenceExtractor:
     """
     Extract and resolve references from parser observations.
 
-    File-to-file references are resolved against the project inventory.
+    File-to-file references are resolved through the resolver registry.
     Usage evidence (class/ID/selector) is recorded without inventing
     a filesystem target.
     """
@@ -40,10 +40,10 @@ class ReferenceExtractor:
     def __init__(
         self,
         project: Project,
-        php_resolver: PHPDependencyResolver,
+        resolver_registry: ResolverRegistry,
     ) -> None:
         self.project = project
-        self.php_resolver = php_resolver
+        self.resolver_registry = resolver_registry
 
     def extract(
         self,
@@ -54,11 +54,19 @@ class ReferenceExtractor:
         if observation.source is None:
             return None
 
-        if self.php_resolver.handles(observation):
-            return self._extract_php(observation)
-
         if observation.kind in FILE_DEPENDENCY_KINDS:
-            return self._extract_file_reference(observation)
+            if (
+                self.resolver_registry.handles(
+                    observation
+                )
+            ):
+                return self._extract_resolved_dependency(
+                    observation
+                )
+
+            return self._extract_file_reference(
+                observation
+            )
 
         return self._extract_usage(observation)
 
@@ -78,13 +86,17 @@ class ReferenceExtractor:
 
         return references
 
-    def _extract_php(
+    def _extract_resolved_dependency(
         self,
         observation: Observation,
     ) -> Reference:
-        resolution = self.php_resolver.resolve(observation)
+        resolution = self.resolver_registry.resolve(
+            observation
+        )
+
         raw = observation.value
         normalized = normalize_reference_path(raw)
+
         dynamic = looks_dynamic(raw) or (
             observation.confidence is Confidence.UNKNOWN
             and resolution.target is None
@@ -101,7 +113,7 @@ class ReferenceExtractor:
                 status=ResolutionStatus.RESOLVED,
             )
 
-        if dynamic or looks_dynamic(raw):
+        if dynamic:
             return self._reference(
                 observation,
                 raw=raw,
@@ -228,11 +240,21 @@ class ReferenceExtractor:
         source = observation.source
         used_strategy = strategy
 
-        source_hit = self._source_relative_target(source, normalized)
-        project_hit = self._project_relative_target(normalized)
-        absolute_hit = self._absolute_target(normalized)
+        source_hit = self._source_relative_target(
+            source,
+            normalized,
+        )
+        project_hit = self._project_relative_target(
+            normalized
+        )
+        absolute_hit = self._absolute_target(
+            normalized
+        )
 
-        if strategy is ResolutionStrategy.ABSOLUTE and absolute_hit:
+        if (
+            strategy is ResolutionStrategy.ABSOLUTE
+            and absolute_hit
+        ):
             return self._reference(
                 observation,
                 raw=raw,
@@ -288,7 +310,11 @@ class ReferenceExtractor:
             )
 
         if "/" not in normalized:
-            named = list(self.project.files_named(Path(normalized).name))
+            named = list(
+                self.project.files_named(
+                    Path(normalized).name
+                )
+            )
 
             if len(named) > 1:
                 return self._reference(
@@ -324,7 +350,9 @@ class ReferenceExtractor:
         normalized: str,
     ) -> File | None:
         try:
-            path = (source.path.parent / normalized).resolve()
+            path = (
+                source.path.parent / normalized
+            ).resolve()
         except (OSError, RuntimeError, ValueError):
             return None
 
@@ -333,14 +361,21 @@ class ReferenceExtractor:
 
         return self.project.get_file(path)
 
-    def _project_relative_target(self, normalized: str) -> File | None:
-        found = self.project.get_by_relative_path(normalized)
+    def _project_relative_target(
+        self,
+        normalized: str,
+    ) -> File | None:
+        found = self.project.get_by_relative_path(
+            normalized
+        )
 
         if found is not None:
             return found
 
         try:
-            path = (self.project.root / normalized).resolve()
+            path = (
+                self.project.root / normalized
+            ).resolve()
         except (OSError, RuntimeError, ValueError):
             return None
 
@@ -349,9 +384,16 @@ class ReferenceExtractor:
 
         return self.project.get_file(path)
 
-    def _absolute_target(self, normalized: str) -> File | None:
+    def _absolute_target(
+        self,
+        normalized: str,
+    ) -> File | None:
         try:
-            path = Path(normalized).expanduser().resolve()
+            path = (
+                Path(normalized)
+                .expanduser()
+                .resolve()
+            )
         except (OSError, RuntimeError, ValueError):
             return None
 
@@ -360,9 +402,14 @@ class ReferenceExtractor:
 
         return self.project.get_file(path)
 
-    def _inside_project(self, path: Path) -> bool:
+    def _inside_project(
+        self,
+        path: Path,
+    ) -> bool:
         try:
-            path.relative_to(self.project.root)
+            path.relative_to(
+                self.project.root
+            )
         except ValueError:
             return False
 
@@ -382,7 +429,9 @@ class ReferenceExtractor:
         source = observation.source
 
         if source is None:
-            raise ValueError("observation.source is required")
+            raise ValueError(
+                "observation.source is required"
+            )
 
         return Reference(
             source=source,
@@ -411,8 +460,14 @@ class ReferenceExtractor:
         )
 
 
-def _is_absolute_path(value: str) -> bool:
-    if len(value) >= 2 and value[1] == ":" and value[0].isalpha():
+def _is_absolute_path(
+    value: str,
+) -> bool:
+    if (
+        len(value) >= 2
+        and value[1] == ":"
+        and value[0].isalpha()
+    ):
         return True
 
     return Path(value).is_absolute()

@@ -5,26 +5,14 @@ Converts static PHP include/require observations into concrete
 project files.
 """
 
-from dataclasses import dataclass
 from pathlib import Path
 
+from iksha.dependency.result import ResolutionResult
 from iksha.domain.file import File
 from iksha.domain.reference import ReferenceKind
 from iksha.parsing.result import Observation
 from iksha.php.static_path import PHPStaticPathEvaluator
 
-
-@dataclass(frozen=True)
-class ResolutionResult:
-    """Result of resolving one dependency observation."""
-
-    observation: Observation
-    target: File | None = None
-
-    @property
-    def resolved(self) -> bool:
-        """Return whether the dependency resolved."""
-        return self.target is not None
 
 
 class PHPDependencyResolver:
