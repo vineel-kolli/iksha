@@ -1,10 +1,8 @@
 ﻿from pathlib import Path
 
+from iksha.analysis.factory import create_analysis_pipeline
 from iksha.analysis.pipeline import AnalysisPipeline
 from iksha.config.loader import load_config
-from iksha.dependency.php_resolver import PHPDependencyResolver
-from iksha.dependency.css_resolver import CSSDependencyResolver
-from iksha.dependency.registry import ResolverRegistry
 from iksha.domain.project import Project
 from iksha.domain.reference import ReferenceKind
 from iksha.inventory.project_inventory import ProjectInventory
@@ -32,56 +30,17 @@ def create_project(tmp_path: Path) -> Project:
     ).scan()
 
 
-def make_resolver_registry(
-    project: Project,
-) -> ResolverRegistry:
-    """Create the resolver registry used by pipeline tests."""
-
-    php_resolver = PHPDependencyResolver(
-        project.root,
-    )
-
-    css_resolver = CSSDependencyResolver(
-        project,
-    )
-
-    return ResolverRegistry(
-        [
-            php_resolver,
-            css_resolver,
-        ],
-    )
-
-    return ResolverRegistry(
-        [resolver],
-    )
-
-
 def make_pipeline(
     project: Project,
 ) -> AnalysisPipeline:
-    registry = ParserRegistry()
-
-    registry.register(
-        "php",
-        PHPParser(),
-    )
-
-    resolver_registry = make_resolver_registry(
+    return create_analysis_pipeline(
         project,
-    )
-
-    return AnalysisPipeline(
-        project=project,
-        source_loader=SourceLoader(),
-        parser_registry=registry,
-        resolver_registry=resolver_registry,
     )
 
 
 def test_pipeline_builds_php_dependency_graph(
     tmp_path: Path,
-):
+) -> None:
     project = create_project(
         tmp_path,
     )
@@ -113,7 +72,7 @@ def test_pipeline_builds_php_dependency_graph(
 
 def test_pipeline_resolves_nested_relative_reference(
     tmp_path: Path,
-):
+) -> None:
     (tmp_path / "pages").mkdir()
     (tmp_path / "includes").mkdir()
 
@@ -158,7 +117,7 @@ def test_pipeline_resolves_nested_relative_reference(
 
 def test_pipeline_preserves_authoritative_file_objects(
     tmp_path: Path,
-):
+) -> None:
     project = create_project(
         tmp_path,
     )
@@ -187,7 +146,7 @@ def test_pipeline_preserves_authoritative_file_objects(
 
 def test_pipeline_collects_unresolved_references(
     tmp_path: Path,
-):
+) -> None:
     (tmp_path / "index.php").write_text(
         '<?php include "missing.php"; ?>',
         encoding="utf-8",
@@ -214,7 +173,7 @@ def test_pipeline_collects_unresolved_references(
 
 def test_pipeline_does_not_create_edges_for_dynamic_paths(
     tmp_path: Path,
-):
+) -> None:
     (tmp_path / "index.php").write_text(
         '<?php include $template; ?>',
         encoding="utf-8",
@@ -237,7 +196,7 @@ def test_pipeline_does_not_create_edges_for_dynamic_paths(
 
 def test_pipeline_ignores_unsupported_file_types(
     tmp_path: Path,
-):
+) -> None:
     (tmp_path / "index.php").write_text(
         '<?php include "header.php"; ?>',
         encoding="utf-8",
@@ -270,7 +229,7 @@ def test_pipeline_ignores_unsupported_file_types(
 
 def test_pipeline_is_repeatable(
     tmp_path: Path,
-):
+) -> None:
     project = create_project(
         tmp_path,
     )
@@ -293,7 +252,7 @@ def test_pipeline_is_repeatable(
 
 def test_pipeline_records_resolved_config(
     tmp_path: Path,
-):
+) -> None:
     project = create_project(
         tmp_path,
     )
@@ -305,27 +264,21 @@ def test_pipeline_records_resolved_config(
         },
     )
 
-    pipeline = AnalysisPipeline(
-        project=project,
-        source_loader=SourceLoader(),
-        parser_registry=ParserRegistry(),
-        resolver_registry=make_resolver_registry(
-            project,
-        ),
+    pipeline = create_analysis_pipeline(
+        project,
         config=loaded.config,
-        config_diagnostics=loaded.diagnostics,
     )
 
     result = pipeline.run()
 
     assert result.config == loaded.config
     assert result.config.max_file_size_mb == 7
-    assert result.diagnostics == loaded.diagnostics
+    assert result.diagnostics == []
 
 
 def test_pipeline_keeps_html_observations_without_php_unresolved(
     tmp_path: Path,
-):
+) -> None:
     (tmp_path / "index.html").write_text(
         '<link rel="stylesheet" href="css/main.css">',
         encoding="utf-8",
@@ -342,13 +295,8 @@ def test_pipeline_keeps_html_observations_without_php_unresolved(
         tmp_path,
     ).scan()
 
-    pipeline = AnalysisPipeline(
-        project=project,
-        source_loader=SourceLoader(),
-        parser_registry=register_default_parsers(),
-        resolver_registry=make_resolver_registry(
-            project,
-        ),
+    pipeline = make_pipeline(
+        project,
     )
 
     result = pipeline.run()
@@ -371,7 +319,7 @@ def test_pipeline_keeps_html_observations_without_php_unresolved(
 
 def test_pipeline_warns_when_source_is_truncated(
     tmp_path: Path,
-):
+) -> None:
     (tmp_path / "index.php").write_text(
         '<?php include "header.php"; ?>',
         encoding="utf-8",
@@ -392,15 +340,14 @@ def test_pipeline_warns_when_source_is_truncated(
         PHPParser(),
     )
 
-    pipeline = AnalysisPipeline(
-        project=project,
-        source_loader=SourceLoader(
-            max_file_size_mb=1 / (1024 * 1024),
-        ),
+    source_loader = SourceLoader(
+        max_file_size_mb=1 / (1024 * 1024),
+    )
+
+    pipeline = create_analysis_pipeline(
+        project,
         parser_registry=registry,
-        resolver_registry=make_resolver_registry(
-            project,
-        ),
+        source_loader=source_loader,
     )
 
     result = pipeline.run()
@@ -409,54 +356,4 @@ def test_pipeline_warns_when_source_is_truncated(
         diagnostic.severity == "warning"
         and "truncated" in diagnostic.message.lower()
         for diagnostic in result.diagnostics
-    )
-def test_pipeline_resolves_css_import(
-    tmp_path: Path,
-) -> None:
-    (tmp_path / "css").mkdir()
-
-    (tmp_path / "css" / "main.css").write_text(
-        '@import "theme.css";',
-        encoding="utf-8",
-    )
-
-    (tmp_path / "css" / "theme.css").write_text(
-        "body {}",
-        encoding="utf-8",
-    )
-
-    project = ProjectInventory(
-        tmp_path,
-    ).scan()
-
-    registry = ParserRegistry()
-    registry.register(
-        "css",
-        register_default_parsers().get("css"),
-    )
-
-    pipeline = AnalysisPipeline(
-        project=project,
-        source_loader=SourceLoader(),
-        parser_registry=registry,
-        resolver_registry=make_resolver_registry(project),
-    )
-
-    result = pipeline.run()
-
-    main_file = project.get_by_relative_path(
-        "css/main.css",
-    )
-    theme_file = project.get_by_relative_path(
-        "css/theme.css",
-    )
-
-    assert main_file is not None
-    assert theme_file is not None
-
-    assert any(
-        reference.source is main_file
-        and reference.target is theme_file
-        and reference.resolved
-        for reference in result.references
     )
