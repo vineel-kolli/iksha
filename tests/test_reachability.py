@@ -2,9 +2,10 @@ from pathlib import Path
 
 from iksha.analysis.reachability import ReachabilityAnalyzer
 from iksha.domain.file import File
+from iksha.domain.reference import ReferenceKind
+from iksha.domain.states import ReachabilityState
 from iksha.graph.dependency import DependencyGraph
 from iksha.parsing.result import Observation
-from iksha.domain.reference import ReferenceKind
 
 
 def make_file(
@@ -37,11 +38,12 @@ def test_reachability_includes_entry_points() -> None:
     graph = DependencyGraph()
     analyzer = ReachabilityAnalyzer(graph)
 
-    reachable = analyzer.reachable_from(
-        [entry],
+    result = analyzer.analyze(
+        entry_points=(entry,),
+        files=[entry],
     )
 
-    assert reachable == {entry}
+    assert result.state_for(entry) is ReachabilityState.REACHABLE
 
 
 def test_reachability_follows_dependency_edges() -> None:
@@ -65,18 +67,21 @@ def test_reachability_follows_dependency_edges() -> None:
 
     analyzer = ReachabilityAnalyzer(graph)
 
-    reachable = analyzer.reachable_from(
-        [entry],
+    result = analyzer.analyze(
+        entry_points=(entry,),
+        files=[
+            entry,
+            header,
+            config,
+        ],
     )
 
-    assert reachable == {
-        entry,
-        header,
-        config,
-    }
+    assert result.state_for(entry) is ReachabilityState.REACHABLE
+    assert result.state_for(header) is ReachabilityState.REACHABLE
+    assert result.state_for(config) is ReachabilityState.REACHABLE
 
 
-def test_reachability_does_not_include_disconnected_files() -> None:
+def test_reachability_marks_disconnected_files_unreachable() -> None:
     entry = make_file("index.php")
     used = make_file("used.php")
     unused = make_file("unused.php")
@@ -91,12 +96,17 @@ def test_reachability_does_not_include_disconnected_files() -> None:
 
     analyzer = ReachabilityAnalyzer(graph)
 
-    reachable = analyzer.reachable_from(
-        [entry],
+    result = analyzer.analyze(
+        entry_points=(entry,),
+        files=[
+            entry,
+            used,
+            unused,
+        ],
     )
 
-    assert used in reachable
-    assert unused not in reachable
+    assert result.state_for(used) is ReachabilityState.REACHABLE
+    assert result.state_for(unused) is ReachabilityState.UNREACHABLE
 
 
 def test_reachability_supports_multiple_entry_points() -> None:
@@ -121,16 +131,20 @@ def test_reachability_supports_multiple_entry_points() -> None:
 
     analyzer = ReachabilityAnalyzer(graph)
 
-    reachable = analyzer.reachable_from(
-        [first, second],
+    result = analyzer.analyze(
+        entry_points=(first, second),
+        files=[
+            first,
+            second,
+            first_dep,
+            second_dep,
+        ],
     )
 
-    assert reachable == {
-        first,
-        second,
-        first_dep,
-        second_dep,
-    }
+    assert result.state_for(first) is ReachabilityState.REACHABLE
+    assert result.state_for(second) is ReachabilityState.REACHABLE
+    assert result.state_for(first_dep) is ReachabilityState.REACHABLE
+    assert result.state_for(second_dep) is ReachabilityState.REACHABLE
 
 
 def test_is_reachable_returns_expected_result() -> None:
@@ -157,3 +171,28 @@ def test_is_reachable_returns_expected_result() -> None:
         disconnected,
         [entry],
     ) is False
+
+
+def test_analyze_preserves_deterministic_file_order() -> None:
+    first = make_file("z.php")
+    second = make_file("a.php")
+
+    graph = DependencyGraph()
+
+    analyzer = ReachabilityAnalyzer(graph)
+
+    result = analyzer.analyze(
+        entry_points=(first,),
+        files=[
+            first,
+            second,
+        ],
+    )
+
+    assert [
+        item.file.relative_path
+        for item in result.files
+    ] == [
+        "a.php",
+        "z.php",
+    ]
