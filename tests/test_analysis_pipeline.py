@@ -455,3 +455,43 @@ def test_pipeline_keeps_reachability_unknown_without_entry_points(
         assert result.reachability.state_for(
             file,
         ) is ReachabilityState.UNKNOWN
+
+def test_pipeline_correlates_css_selector_with_html_class_usage(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "index.html").write_text(
+        '<div class="card"></div>',
+        encoding="utf-8",
+    )
+
+    (tmp_path / "style.css").write_text(
+        ".card { color: red; }",
+        encoding="utf-8",
+    )
+
+    project = ProjectInventory(
+        tmp_path,
+    ).scan()
+
+    pipeline = make_pipeline(
+        project,
+    )
+
+    result = pipeline.run()
+
+    css_file = project.get_by_relative_path(
+        "style.css",
+    )
+
+    assert css_file is not None
+
+    usages = result.selector_usage.usages_for(
+        css_file,
+    )
+
+    assert len(usages) == 1
+    assert usages[0].selector == ".card"
+    assert usages[0].state.value == "definitely_used"
+    assert len(usages[0].evidence) == 1
+    assert usages[0].evidence[0].kind is ReferenceKind.CLASS
+    assert usages[0].evidence[0].value == "card"

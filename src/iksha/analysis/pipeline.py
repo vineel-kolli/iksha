@@ -15,14 +15,24 @@ from iksha.config.loader import load_config
 from iksha.config.model import Config
 from iksha.dependency.registry import ResolverRegistry
 from iksha.dependency.result import ResolutionResult
+from iksha.domain.file import File
 from iksha.domain.project import Project
-from iksha.domain.reference import FILE_DEPENDENCY_KINDS, Reference
+from iksha.domain.reference import (
+    FILE_DEPENDENCY_KINDS,
+    Reference,
+    ReferenceKind,
+)
 from iksha.domain.resolution import ResolutionStatus
 from iksha.graph.dependency import DependencyGraph
 from iksha.parsing.registry import ParserRegistry
 from iksha.parsing.result import Diagnostic, Observation
 from iksha.references.extractor import ReferenceExtractor
 from iksha.source.loader import SourceLoader
+from iksha.analysis.selector_usage_result import SelectorUsageResult
+from iksha.analysis.selector_usage import (
+    SelectorUsage,
+    analyze_selector_usage,
+)
 
 
 @dataclass
@@ -48,7 +58,9 @@ class AnalysisResult:
     references: list[Reference] = field(
         default_factory=list
     )
-
+    selector_usage: SelectorUsageResult = field(
+        default_factory=SelectorUsageResult
+    )
     reachability: ReachabilityResult | None = None
 
     config: Config | None = None
@@ -190,7 +202,9 @@ class AnalysisPipeline:
                             target=reference.target,
                         )
                     )
-
+        result.selector_usage = self._analyze_selector_usage(
+            result.observations,
+        )
         entry_points = EntryPointResolver(
             self.project,
         ).resolve(
@@ -215,4 +229,49 @@ class AnalysisPipeline:
                 file.relative_path.lower(),
                 file.relative_path,
             ),
+        )
+    def _analyze_selector_usage(
+        self,
+        observations: list[Observation],
+    ) -> SelectorUsageResult:
+        """Correlate CSS selector observations with usage evidence."""
+
+        usage_observations = [
+            observation
+            for observation in observations
+            if observation.kind in {
+                ReferenceKind.CLASS,
+                ReferenceKind.ID,
+            }
+        ]
+
+        result: dict[File, tuple[SelectorUsage, ...]] = {}
+
+        for file in self._project_files():
+            if file.file_type != "css":
+                continue
+
+            selectors = [
+                observation
+                for observation in observations
+                if (
+                    observation.source is file
+                    and observation.kind
+                    is ReferenceKind.DOM_SELECTOR
+                )
+            ]
+
+            if not selectors:
+                continue
+
+            result[file] = tuple(
+                analyze_selector_usage(
+                    selector.value,
+                    usage_observations,
+                )
+                for selector in selectors
+            )
+
+        return SelectorUsageResult(
+            by_file=result,
         )
