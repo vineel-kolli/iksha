@@ -6,7 +6,10 @@ from iksha.parsing.css import CssParser
 from iksha.source.document import SourceDocument
 
 
-def make_css(tmp_path: Path, content: str):
+def make_css(
+    tmp_path: Path,
+    content: str,
+) -> tuple[File, SourceDocument]:
     path = tmp_path / "main.css"
     path.write_text(content, encoding="utf-8")
 
@@ -16,6 +19,7 @@ def make_css(tmp_path: Path, content: str):
         file_type="css",
         size=path.stat().st_size,
     )
+
     document = SourceDocument(
         path=file.path,
         text=content,
@@ -24,10 +28,11 @@ def make_css(tmp_path: Path, content: str):
         success=True,
         language="css",
     )
+
     return file, document
 
 
-def test_extracts_css_imports(tmp_path: Path):
+def test_extracts_css_imports(tmp_path: Path) -> None:
     file, document = make_css(
         tmp_path,
         """
@@ -39,7 +44,12 @@ body { color: red; }
     )
 
     result = CssParser().parse(file, document)
-    values = [item.value for item in result.observations]
+
+    values = [
+        item.value
+        for item in result.observations
+        if item.kind is ReferenceKind.IMPORT
+    ]
 
     assert result.success is True
     assert values == [
@@ -47,17 +57,20 @@ body { color: red; }
         "theme.css",
         "reset.css",
     ]
-    assert all(
-        item.kind is ReferenceKind.IMPORT
+
+    import_observations = [
+        item
         for item in result.observations
-    )
+        if item.kind is ReferenceKind.IMPORT
+    ]
+
     assert all(
         item.confidence is Confidence.CERTAIN
-        for item in result.observations
+        for item in import_observations
     )
 
 
-def test_css_import_preserves_location(tmp_path: Path):
+def test_css_import_preserves_location(tmp_path: Path) -> None:
     file, document = make_css(
         tmp_path,
         '@import "header.css";\n',
@@ -65,5 +78,75 @@ def test_css_import_preserves_location(tmp_path: Path):
 
     result = CssParser().parse(file, document)
 
-    assert result.observations[0].location is not None
-    assert result.observations[0].location.line == 1
+    import_observation = next(
+        item
+        for item in result.observations
+        if item.kind is ReferenceKind.IMPORT
+    )
+
+    assert import_observation.location is not None
+    assert import_observation.location.line == 1
+
+
+def test_extracts_css_selectors(tmp_path: Path) -> None:
+    file, document = make_css(
+        tmp_path,
+        """
+.card,
+#login {
+    color: red;
+}
+
+body.dark .card:hover {
+    background: black;
+}
+""",
+    )
+
+    result = CssParser().parse(file, document)
+
+    selectors = [
+        item.value
+        for item in result.observations
+        if item.kind is ReferenceKind.DOM_SELECTOR
+    ]
+
+    assert selectors == [
+        ".card,\n#login",
+        "body.dark .card:hover",
+    ]
+
+    selector_observations = [
+        item
+        for item in result.observations
+        if item.kind is ReferenceKind.DOM_SELECTOR
+    ]
+
+    assert all(
+        item.confidence is Confidence.CERTAIN
+        for item in selector_observations
+    )
+
+
+def test_css_selector_preserves_location(tmp_path: Path) -> None:
+    file, document = make_css(
+        tmp_path,
+        """
+@import "theme.css";
+
+.card {
+    color: red;
+}
+""",
+    )
+
+    result = CssParser().parse(file, document)
+
+    selector = next(
+        item
+        for item in result.observations
+        if item.kind is ReferenceKind.DOM_SELECTOR
+    )
+
+    assert selector.location is not None
+    assert selector.location.line == 4

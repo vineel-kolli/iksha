@@ -1,8 +1,9 @@
 """
 CSS parser for IKSHA.
 
-Extracts @import references while preserving source locations.
-This parser does not interpret selectors as HTML usage evidence.
+Extracts @import references and CSS selector observations while preserving
+source locations. Selector observations are raw authored selectors and are
+not interpreted as usage evidence here.
 """
 
 from iksha.domain.file import File
@@ -18,7 +19,7 @@ except ImportError:  # pragma: no cover
 
 
 class CssParser:
-    """Extract CSS @import observations from a document."""
+    """Extract CSS references and selector observations from a document."""
 
     def parse(
         self,
@@ -68,35 +69,91 @@ class CssParser:
                 )
                 continue
 
-            if getattr(rule, "type", None) != "at-rule":
-                continue
+            rule_type = getattr(rule, "type", None)
 
-            if getattr(rule, "lower_at_keyword", "") != "import":
-                continue
-
-            value = _import_target(rule)
-
-            if value is None:
-                continue
-
-            offset = _rule_offset(document, rule)
-            confidence = (
-                Confidence.UNKNOWN
-                if looks_dynamic(value)
-                else Confidence.CERTAIN
-            )
-
-            result.observations.append(
-                Observation(
-                    source=file,
-                    kind=ReferenceKind.IMPORT,
-                    value=value,
-                    location=document.location_at(offset),
-                    confidence=confidence,
+            if rule_type == "at-rule":
+                self._extract_import(
+                    file=file,
+                    document=document,
+                    rule=rule,
+                    result=result,
                 )
-            )
+                continue
+
+            if rule_type == "qualified-rule":
+                self._extract_selector(
+                    file=file,
+                    document=document,
+                    rule=rule,
+                    result=result,
+                )
 
         return result
+
+    @staticmethod
+    def _extract_import(
+        file: File,
+        document: SourceDocument,
+        rule: object,
+        result: ParseResult,
+    ) -> None:
+        """Extract a CSS @import observation."""
+
+        if getattr(rule, "lower_at_keyword", "") != "import":
+            return
+
+        value = _import_target(rule)
+
+        if value is None:
+            return
+
+        offset = _rule_offset(document, rule)
+        confidence = (
+            Confidence.UNKNOWN
+            if looks_dynamic(value)
+            else Confidence.CERTAIN
+        )
+
+        result.observations.append(
+            Observation(
+                source=file,
+                kind=ReferenceKind.IMPORT,
+                value=value,
+                location=document.location_at(offset),
+                confidence=confidence,
+            )
+        )
+
+    @staticmethod
+    def _extract_selector(
+        file: File,
+        document: SourceDocument,
+        rule: object,
+        result: ParseResult,
+    ) -> None:
+        """Extract the raw selector prelude from a qualified CSS rule."""
+
+        prelude = getattr(rule, "prelude", None)
+
+        if not prelude:
+            return
+
+        selector = tinycss2.serialize(prelude).strip()
+
+        if not selector:
+            return
+
+        offset = _rule_offset(document, rule)
+
+        result.observations.append(
+            Observation(
+                source=file,
+                kind=ReferenceKind.DOM_SELECTOR,
+                value=selector,
+                location=document.location_at(offset),
+                confidence=Confidence.CERTAIN,
+            )
+        )
 
 
 def _rule_offset(document: SourceDocument, rule: object) -> int:
