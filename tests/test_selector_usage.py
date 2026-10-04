@@ -215,3 +215,98 @@ def test_complex_selector_is_conservatively_unknown(
 
     assert result.state is UsageState.UNKNOWN
     assert result.evidence == ()
+def test_matched_files_contains_evidence_sources(
+    tmp_path: Path,
+):
+    first = make_observation(
+        tmp_path,
+        ReferenceKind.CLASS,
+        "card",
+        Confidence.CERTAIN,
+    )
+
+    second_path = tmp_path / "app.js"
+    second_file = File(
+        path=second_path,
+        relative_path="app.js",
+        file_type="javascript",
+        size=0,
+    )
+    second = Observation(
+        source=second_file,
+        kind=ReferenceKind.CLASS,
+        value="card",
+        confidence=Confidence.CERTAIN,
+    )
+
+    result = analyze_selector_usage(
+        ".card",
+        [first, second],
+    )
+
+    assert result.matched_files == (
+        first.source,
+        second.source,
+    )
+
+
+def test_matched_files_are_deduplicated(
+    tmp_path: Path,
+):
+    first = make_observation(
+        tmp_path,
+        ReferenceKind.CLASS,
+        "card",
+        Confidence.CERTAIN,
+    )
+
+    second = make_observation(
+        tmp_path,
+        ReferenceKind.CLASS,
+        "card",
+        Confidence.CERTAIN,
+    )
+
+    result = analyze_selector_usage(
+        ".card",
+        [first, second],
+    )
+
+    assert result.matched_files == (first.source,)
+
+
+def test_no_match_has_no_matched_files(
+    tmp_path: Path,
+):
+    observation = make_observation(
+        tmp_path,
+        ReferenceKind.CLASS,
+        "other",
+        Confidence.CERTAIN,
+    )
+
+    result = analyze_selector_usage(
+        ".card",
+        [observation],
+    )
+
+    assert result.matched_files == ()
+
+
+def test_unknown_selector_has_no_matched_files(
+    tmp_path: Path,
+):
+    observation = make_observation(
+        tmp_path,
+        ReferenceKind.CLASS,
+        "card",
+        Confidence.CERTAIN,
+    )
+
+    result = analyze_selector_usage(
+        ".card .title",
+        [observation],
+    )
+
+    assert result.state is UsageState.UNKNOWN
+    assert result.matched_files == ()

@@ -17,6 +17,7 @@ from iksha.analysis.selectors import (
     SelectorKind,
     parse_selector,
 )
+from iksha.domain.file import File
 from iksha.domain.reference import ReferenceKind
 from iksha.domain.states import Confidence, UsageState
 from iksha.parsing.result import Observation
@@ -29,6 +30,7 @@ class SelectorUsage:
     selector: str
     state: UsageState
     evidence: tuple[Observation, ...] = ()
+    matched_files: tuple[File, ...] = ()
 
 
 def analyze_selector_usage(
@@ -100,10 +102,19 @@ def _analyze_simple_selector(
         for observation in matching
     )
 
+    matched_files = tuple(
+        dict.fromkeys(
+            observation.source
+            for observation in matching
+            if observation.source is not None
+        )
+    )
+
     return SelectorUsage(
         selector=selector.raw,
         state=state,
         evidence=matching,
+        matched_files=matched_files,
     )
 
 
