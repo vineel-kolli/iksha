@@ -196,3 +196,20 @@ def test_analyze_preserves_deterministic_file_order() -> None:
         "a.php",
         "z.php",
     ]
+def test_analyze_marks_files_unknown_without_entry_points() -> None:
+    first = make_file("index.php")
+    second = make_file("style.css")
+
+    graph = DependencyGraph()
+    analyzer = ReachabilityAnalyzer(graph)
+
+    result = analyzer.analyze(
+        entry_points=(),
+        files=[
+            first,
+            second,
+        ],
+    )
+
+    assert result.state_for(first) is ReachabilityState.UNKNOWN
+    assert result.state_for(second) is ReachabilityState.UNKNOWN

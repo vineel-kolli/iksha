@@ -34,9 +34,23 @@ class ReachabilityAnalyzer:
         """
         Classify every supplied project file.
 
-        Files reachable from at least one entry point are marked
-        REACHABLE. Files not reached are marked UNREACHABLE.
+        When no entry points are known, reachability cannot be established,
+        so every file receives UNKNOWN rather than UNREACHABLE.
         """
+
+        sorted_files = self._sorted_files(files)
+
+        if not entry_points:
+            return ReachabilityResult(
+                entry_points=(),
+                files=[
+                    FileReachability(
+                        file=file,
+                        state=ReachabilityState.UNKNOWN,
+                    )
+                    for file in sorted_files
+                ],
+            )
 
         reachable = self._reachable_files(
             entry_points,
@@ -51,7 +65,7 @@ class ReachabilityAnalyzer:
                     else ReachabilityState.UNREACHABLE
                 ),
             )
-            for file in self._sorted_files(files)
+            for file in sorted_files
         ]
 
         return ReachabilityResult(
