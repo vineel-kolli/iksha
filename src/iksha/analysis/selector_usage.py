@@ -10,6 +10,7 @@ semantics are not guessed.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 from iksha.analysis.selectors import (
@@ -20,7 +21,9 @@ from iksha.analysis.selectors import (
 from iksha.domain.file import File
 from iksha.domain.reference import ReferenceKind
 from iksha.domain.states import Confidence, UsageState
+from iksha.parsing.html_document import HtmlDocument
 from iksha.parsing.result import Observation
+from iksha.analysis.selector_evidence import SelectorMatchEvidence
 
 
 @dataclass(frozen=True)
@@ -30,12 +33,14 @@ class SelectorUsage:
     selector: str
     state: UsageState
     evidence: tuple[Observation, ...] = ()
+    semantic_matches: tuple[SelectorMatchEvidence, ...] = ()
     matched_files: tuple[File, ...] = ()
 
 
 def analyze_selector_usage(
     selector: str,
     observations: list[Observation],
+    html_documents: Mapping[File, HtmlDocument] | None = None,
 ) -> SelectorUsage:
     """
     Correlate one CSS selector with usage observations.
