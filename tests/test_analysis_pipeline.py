@@ -495,3 +495,39 @@ def test_pipeline_correlates_css_selector_with_html_class_usage(
     assert len(usages[0].evidence) == 1
     assert usages[0].evidence[0].kind is ReferenceKind.CLASS
     assert usages[0].evidence[0].value == "card"
+def test_pipeline_retains_parsed_html_documents(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "index.html").write_text(
+        '<main><div id="hero" class="card"></div></main>',
+        encoding="utf-8",
+    )
+
+    project = ProjectInventory(
+        tmp_path,
+    ).scan()
+
+    pipeline = make_pipeline(
+        project,
+    )
+
+    result = pipeline.run()
+
+    html_file = project.get_by_relative_path(
+        "index.html",
+    )
+
+    assert html_file is not None
+    assert html_file in result.html_documents
+
+    document = result.html_documents[html_file]
+    elements = document.all_elements()
+
+    assert [element.tag for element in elements] == [
+        "main",
+        "div",
+    ]
+
+    assert elements[1].element_id == "hero"
+    assert elements[1].classes == frozenset({"card"})
+    assert elements[1].parent is elements[0]

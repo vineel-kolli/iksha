@@ -26,6 +26,7 @@ from iksha.domain.resolution import ResolutionStatus
 from iksha.graph.dependency import DependencyGraph
 from iksha.parsing.registry import ParserRegistry
 from iksha.parsing.result import Diagnostic, Observation
+from iksha.parsing.html_document import HtmlDocument
 from iksha.references.extractor import ReferenceExtractor
 from iksha.source.loader import SourceLoader
 from iksha.analysis.selector_usage_result import SelectorUsageResult
@@ -53,6 +54,9 @@ class AnalysisResult:
 
     observations: list[Observation] = field(
         default_factory=list
+    )
+    html_documents: dict[File, HtmlDocument] = field(
+        default_factory=dict
     )
 
     references: list[Reference] = field(
@@ -164,7 +168,13 @@ class AnalysisPipeline:
                 file,
                 document,
             )
-
+            if file.file_type == "html":
+                result.html_documents[file] = (
+                    parser.parse_document(
+                        file,
+                        document,
+                    )
+                )
             result.diagnostics.extend(
                 parse_result.diagnostics
             )
