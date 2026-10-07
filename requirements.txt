@@ -1,0 +1,8 @@
+-e git+https://github.com/vineel-kolli/iksha.git@6fefe7c6c56cabc0e1527c6850ea1285f4693b41#egg=iksha
+iniconfig==2.3.1
+packaging==26.3
+pluggy==1.6.0
+Pygments==2.21.0
+pytest==9.1.1
+tinycss2==1.5.1
+webencodings==0.6.1
