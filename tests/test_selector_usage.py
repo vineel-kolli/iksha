@@ -238,6 +238,49 @@ def test_complex_selector_is_conservatively_unknown(
 
     assert result.state is UsageState.UNKNOWN
     assert result.evidence == ()
+
+
+def test_unsupported_compound_selector_is_unknown(
+    tmp_path: Path,
+):
+    observation = make_observation(
+        tmp_path,
+        ReferenceKind.CLASS,
+        "card",
+        Confidence.CERTAIN,
+    )
+
+    result = analyze_selector_usage(
+        ".card.active",
+        [observation],
+    )
+
+    assert result.state is UsageState.UNKNOWN
+    assert result.evidence == ()
+    assert result.matched_files == ()
+
+def test_unsupported_multi_component_selector_is_unknown(
+    tmp_path: Path,
+):
+    html_file = File(
+        path=tmp_path / "index.html",
+        relative_path="index.html",
+        file_type="html",
+        size=0,
+    )
+
+    document = make_html_document()
+
+    result = analyze_selector_usage(
+        ".card .title .missing",
+        [],
+        {html_file: document},
+    )
+
+    assert result.state is UsageState.UNKNOWN
+    assert result.semantic_matches == ()
+    assert result.matched_files == ()
+
 def test_matched_files_contains_evidence_sources(
     tmp_path: Path,
 ):

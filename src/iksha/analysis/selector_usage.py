@@ -55,6 +55,11 @@ def analyze_selector_usage(
     Unsupported selector semantics remain UNKNOWN.
     """
     parsed = parse_selector(selector)
+    if not _is_semantically_supported(parsed):
+        return SelectorUsage(
+            selector=selector,
+            state=UsageState.UNKNOWN,
+        )
 
     semantic_matches = _semantic_matches(
         selector,
@@ -112,6 +117,18 @@ def analyze_selector_usage(
         selector=selector,
         state=UsageState.UNKNOWN,
     )
+
+def _is_semantically_supported(
+    parsed: ParsedSelector,
+) -> bool:
+    """Return whether this selector kind is supported semantically."""
+    return parsed.kind in {
+        SelectorKind.CLASS,
+        SelectorKind.ID,
+        SelectorKind.ELEMENT,
+        SelectorKind.COMPLEX,
+    }
+
 
 def _semantic_matches(
     selector: str,
