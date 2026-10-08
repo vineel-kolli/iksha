@@ -577,3 +577,140 @@ def test_malformed_selector_does_not_crash_with_dom(
         )
 
         assert result.state is UsageState.UNKNOWN
+
+
+def make_dom_selector_observation(
+    tmp_path: Path,
+    value: str,
+    confidence: Confidence,
+) -> Observation:
+    path = tmp_path / "app.js"
+
+    file = File(
+        path=path,
+        relative_path="app.js",
+        file_type="javascript",
+        size=0,
+    )
+
+    return Observation(
+        source=file,
+        kind=ReferenceKind.DOM_SELECTOR,
+        value=value,
+        confidence=confidence,
+    )
+
+
+def test_css_selector_is_definitely_used_by_js_dom_selector(
+    tmp_path: Path,
+):
+    observation = make_dom_selector_observation(
+        tmp_path,
+        ".card",
+        Confidence.CERTAIN,
+    )
+
+    result = analyze_selector_usage(
+        ".card",
+        [observation],
+    )
+
+    assert result.state is UsageState.DEFINITELY_USED
+    assert result.evidence == (observation,)
+    assert result.matched_files == (observation.source,)
+
+
+def test_unrelated_js_dom_selector_does_not_match(
+    tmp_path: Path,
+):
+    observation = make_dom_selector_observation(
+        tmp_path,
+        ".other",
+        Confidence.CERTAIN,
+    )
+
+    result = analyze_selector_usage(
+        ".card",
+        [observation],
+    )
+
+    assert result.state is UsageState.STATICALLY_UNUSED
+    assert result.evidence == ()
+    assert result.matched_files == ()
+
+
+def test_unknown_js_dom_selector_does_not_prove_specific_css_usage(
+    tmp_path: Path,
+):
+    observation = make_dom_selector_observation(
+        tmp_path,
+        ".card",
+        Confidence.UNKNOWN,
+    )
+
+    result = analyze_selector_usage(
+        ".card",
+        [observation],
+    )
+
+    assert result.state is UsageState.UNKNOWN
+
+
+def test_js_dom_selector_evidence_is_combined_with_class_evidence(
+    tmp_path: Path,
+):
+    class_observation = make_observation(
+        tmp_path,
+        ReferenceKind.CLASS,
+        "card",
+        Confidence.CERTAIN,
+    )
+
+    js_observation = make_dom_selector_observation(
+        tmp_path,
+        ".card",
+        Confidence.CERTAIN,
+    )
+
+    result = analyze_selector_usage(
+        ".card",
+        [class_observation, js_observation],
+    )
+
+    assert result.state is UsageState.DEFINITELY_USED
+    assert result.evidence == (
+        class_observation,
+        js_observation,
+    )
+    assert result.matched_files == (
+        class_observation.source,
+        js_observation.source,
+    )
+
+
+def test_js_dom_selector_confidence_is_preserved_with_class_evidence(
+    tmp_path: Path,
+):
+    class_observation = make_observation(
+        tmp_path,
+        ReferenceKind.CLASS,
+        "card",
+        Confidence.HIGH,
+    )
+
+    js_observation = make_dom_selector_observation(
+        tmp_path,
+        ".card",
+        Confidence.CERTAIN,
+    )
+
+    result = analyze_selector_usage(
+        ".card",
+        [class_observation, js_observation],
+    )
+
+    assert result.state is UsageState.DEFINITELY_USED
+    assert result.evidence == (
+        class_observation,
+        js_observation,
+    )

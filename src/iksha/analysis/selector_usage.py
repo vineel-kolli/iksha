@@ -206,32 +206,22 @@ def _matched_files_from_semantic_matches(
     )
 
 
-def _analyze_simple_selector(
-    selector: ParsedSelector,
-    observation_kind: ReferenceKind,
+def _analyze_dom_selector_usage(
+    selector: str,
     observations: list[Observation],
-    html_documents: Mapping[File, HtmlDocument] | None,
-    incomplete_files: set[File],
 ) -> SelectorUsage:
+    """Correlate exact JavaScript DOM selector observations."""
+
     matching = tuple(
         observation
         for observation in observations
-        if observation.kind is observation_kind
-        and observation.value == selector.value
+        if observation.kind is ReferenceKind.DOM_SELECTOR
+        and observation.value == selector
     )
 
     if not matching:
-        if _html_usage_is_incomplete(
-            html_documents,
-            incomplete_files,
-        ):
-            return SelectorUsage(
-                selector=selector.raw,
-                state=UsageState.UNKNOWN,
-            )
-
         return SelectorUsage(
-            selector=selector.raw,
+            selector=selector,
             state=UsageState.STATICALLY_UNUSED,
         )
 
@@ -249,9 +239,65 @@ def _analyze_simple_selector(
     )
 
     return SelectorUsage(
-        selector=selector.raw,
+        selector=selector,
         state=state,
         evidence=matching,
+        matched_files=matched_files,
+    )
+
+
+def _analyze_simple_selector(
+    selector: ParsedSelector,
+    observation_kind: ReferenceKind,
+    observations: list[Observation],
+    html_documents: Mapping[File, HtmlDocument] | None,
+    incomplete_files: set[File],
+) -> SelectorUsage:
+    dom_selector_usage = _analyze_dom_selector_usage(
+        selector.raw,
+        observations,
+    )
+
+    matching = tuple(
+        observation
+        for observation in observations
+        if observation.kind is observation_kind
+        and observation.value == selector.value
+    )
+    combined_evidence = matching + dom_selector_usage.evidence
+
+    if not combined_evidence:
+        if _html_usage_is_incomplete(
+            html_documents,
+            incomplete_files,
+        ):
+            return SelectorUsage(
+                selector=selector.raw,
+                state=UsageState.UNKNOWN,
+            )
+
+        return SelectorUsage(
+            selector=selector.raw,
+            state=UsageState.STATICALLY_UNUSED,
+        )
+
+    state = _usage_state_for_confidence(
+        observation.confidence
+        for observation in combined_evidence
+    )
+
+    matched_files = tuple(
+        dict.fromkeys(
+            observation.source
+            for observation in combined_evidence
+            if observation.source is not None
+        )
+    )
+
+    return SelectorUsage(
+        selector=selector.raw,
+        state=state,
+        evidence=combined_evidence,
         matched_files=matched_files,
     )
 
