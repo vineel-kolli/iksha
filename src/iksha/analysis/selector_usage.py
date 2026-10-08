@@ -27,7 +27,6 @@ from iksha.parsing.html_document import HtmlDocument
 from iksha.parsing.result import Observation
 
 
-
 @dataclass(frozen=True)
 class SelectorUsage:
     """Usage result for one CSS selector."""
@@ -173,6 +172,8 @@ def _matched_files_from_semantic_matches(
             for match in semantic_matches
         )
     )
+
+
 def _analyze_simple_selector(
     selector: ParsedSelector,
     observation_kind: ReferenceKind,
