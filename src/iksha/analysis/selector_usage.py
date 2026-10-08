@@ -13,6 +13,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from iksha.analysis.selector_evidence import SelectorMatchEvidence
+from iksha.analysis.selector_matcher import match_selector
 from iksha.analysis.selectors import (
     ParsedSelector,
     SelectorKind,
@@ -23,7 +25,7 @@ from iksha.domain.reference import ReferenceKind
 from iksha.domain.states import Confidence, UsageState
 from iksha.parsing.html_document import HtmlDocument
 from iksha.parsing.result import Observation
-from iksha.analysis.selector_evidence import SelectorMatchEvidence
+
 
 
 @dataclass(frozen=True)
@@ -43,39 +45,68 @@ def analyze_selector_usage(
     html_documents: Mapping[File, HtmlDocument] | None = None,
 ) -> SelectorUsage:
     """
-    Correlate one CSS selector with usage observations.
+    Correlate one CSS selector with parser observations and HTML DOM matches.
 
     Supported currently:
       - .class ↔ CLASS observation
       - #id    ↔ ID observation
+      - element selectors ↔ HTML DOM elements
+      - complex selectors ↔ HTML DOM elements
 
-    Element and complex selectors remain UNKNOWN until DOM-aware
-    semantic matching is implemented.
+    Unsupported selector semantics remain UNKNOWN.
     """
     parsed = parse_selector(selector)
 
+    semantic_matches = _semantic_matches(
+        selector,
+        html_documents,
+    )
+
     if parsed.kind is SelectorKind.CLASS:
-        return _analyze_simple_selector(
+        usage = _analyze_simple_selector(
             parsed,
             ReferenceKind.CLASS,
             observations,
         )
+        return _combine_usage_results(
+            usage,
+            semantic_matches,
+        )
 
     if parsed.kind is SelectorKind.ID:
-        return _analyze_simple_selector(
+        usage = _analyze_simple_selector(
             parsed,
             ReferenceKind.ID,
             observations,
+        )
+        return _combine_usage_results(
+            usage,
+            semantic_matches,
         )
 
     if parsed.kind in {
         SelectorKind.ELEMENT,
         SelectorKind.COMPLEX,
-        SelectorKind.UNSUPPORTED,
     }:
+        if html_documents is None:
+            return SelectorUsage(
+                selector=selector,
+                state=UsageState.UNKNOWN,
+            )
+
+        if semantic_matches:
+            return SelectorUsage(
+                selector=selector,
+                state=UsageState.DEFINITELY_USED,
+                semantic_matches=semantic_matches,
+                matched_files=_matched_files_from_semantic_matches(
+                    semantic_matches,
+                ),
+            )
+
         return SelectorUsage(
             selector=selector,
-            state=UsageState.UNKNOWN,
+            state=UsageState.STATICALLY_UNUSED,
         )
 
     return SelectorUsage(
@@ -83,7 +114,65 @@ def analyze_selector_usage(
         state=UsageState.UNKNOWN,
     )
 
+def _semantic_matches(
+    selector: str,
+    html_documents: Mapping[File, HtmlDocument] | None,
+) -> tuple[SelectorMatchEvidence, ...]:
+    if html_documents is None:
+        return ()
 
+    matches: list[SelectorMatchEvidence] = []
+
+    for source, document in html_documents.items():
+        for element in match_selector(selector, document):
+            matches.append(
+                SelectorMatchEvidence(
+                    source=source,
+                    location=element.location,
+                    element_tag=element.tag,
+                    element_id=element.element_id,
+                    element_classes=tuple(sorted(element.classes)),
+                )
+            )
+
+    return tuple(matches)
+
+
+def _combine_usage_results(
+    usage: SelectorUsage,
+    semantic_matches: tuple[SelectorMatchEvidence, ...],
+) -> SelectorUsage:
+    if not semantic_matches:
+        return usage
+
+    semantic_files = _matched_files_from_semantic_matches(
+        semantic_matches,
+    )
+
+    matched_files = tuple(
+        dict.fromkeys(
+            (*usage.matched_files, *semantic_files),
+        )
+    )
+
+    return SelectorUsage(
+        selector=usage.selector,
+        state=UsageState.DEFINITELY_USED,
+        evidence=usage.evidence,
+        semantic_matches=semantic_matches,
+        matched_files=matched_files,
+    )
+
+
+def _matched_files_from_semantic_matches(
+    semantic_matches: tuple[SelectorMatchEvidence, ...],
+) -> tuple[File, ...]:
+    return tuple(
+        dict.fromkeys(
+            match.source
+            for match in semantic_matches
+        )
+    )
 def _analyze_simple_selector(
     selector: ParsedSelector,
     observation_kind: ReferenceKind,

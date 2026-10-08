@@ -531,3 +531,63 @@ def test_pipeline_retains_parsed_html_documents(
     assert elements[1].element_id == "hero"
     assert elements[1].classes == frozenset({"card"})
     assert elements[1].parent is elements[0]
+def test_pipeline_correlates_css_selector_with_html_dom(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "index.html").write_text(
+        '<main><div class="card"></div></main>',
+        encoding="utf-8",
+    )
+
+    (tmp_path / "style.css").write_text(
+        ".card { color: red; }",
+        encoding="utf-8",
+    )
+
+    project = ProjectInventory(
+        tmp_path,
+    ).scan()
+
+    pipeline = make_pipeline(
+        project,
+    )
+
+    result = pipeline.run()
+
+    css_file = project.get_by_relative_path(
+        "style.css",
+    )
+
+    html_file = project.get_by_relative_path(
+        "index.html",
+    )
+
+    assert css_file is not None
+    assert html_file is not None
+    assert html_file in result.html_documents
+
+    document = result.html_documents[html_file]
+    elements = document.all_elements()
+
+    assert len(elements) == 2
+    assert elements[1].tag == "div"
+    assert elements[1].classes == frozenset({"card"})
+    assert len(elements) == 2
+    assert elements[1].tag == "div"
+    assert elements[1].classes == frozenset({"card"})
+
+    usages = result.selector_usage.usages_for(
+        css_file,
+    )
+
+    assert len(usages) == 1
+
+    usage = usages[0]
+
+    assert usage.selector == ".card"
+    assert usage.state.value == "definitely_used"
+    assert len(usage.semantic_matches) == 1
+    assert usage.semantic_matches[0].source is html_file
+    assert usage.semantic_matches[0].element_tag == "div"
+    assert usage.semantic_matches[0].element_classes == ("card",)
+    assert usage.matched_files == (html_file,)

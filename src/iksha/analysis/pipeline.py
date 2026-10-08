@@ -214,6 +214,7 @@ class AnalysisPipeline:
                     )
         result.selector_usage = self._analyze_selector_usage(
             result.observations,
+            result.html_documents,
         )
         entry_points = EntryPointResolver(
             self.project,
@@ -243,6 +244,7 @@ class AnalysisPipeline:
     def _analyze_selector_usage(
         self,
         observations: list[Observation],
+        html_documents: dict[File, HtmlDocument],
     ) -> SelectorUsageResult:
         """Correlate CSS selector observations with usage evidence."""
 
@@ -278,6 +280,7 @@ class AnalysisPipeline:
                 analyze_selector_usage(
                     selector.value,
                     usage_observations,
+                    html_documents=html_documents,
                 )
                 for selector in selectors
             )
