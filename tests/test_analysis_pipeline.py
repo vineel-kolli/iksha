@@ -10,7 +10,7 @@ from iksha.parsing.defaults import register_default_parsers
 from iksha.parsing.php import PHPParser
 from iksha.parsing.registry import ParserRegistry
 from iksha.source.loader import SourceLoader
-from iksha.domain.states import ReachabilityState
+from iksha.domain.states import ReachabilityState, UsageState
 
 
 def create_project(tmp_path: Path) -> Project:
@@ -33,9 +33,12 @@ def create_project(tmp_path: Path) -> Project:
 
 def make_pipeline(
     project: Project,
+    *,
+    source_loader: SourceLoader | None = None,
 ) -> AnalysisPipeline:
     return create_analysis_pipeline(
         project,
+        source_loader=source_loader,
     )
 
 
@@ -590,4 +593,132 @@ def test_pipeline_correlates_css_selector_with_html_dom(
     assert usage.semantic_matches[0].source is html_file
     assert usage.semantic_matches[0].element_tag == "div"
     assert usage.semantic_matches[0].element_classes == ("card",)
+    assert usage.matched_files == (html_file,)
+
+
+def test_pipeline_does_not_mark_selector_unused_when_html_is_truncated(
+    tmp_path: Path,
+) -> None:
+    html_prefix = '<main><div class="other"></div>'
+    html_tail = '<div class="card"></div></main>'
+    html = html_prefix + html_tail
+
+    (tmp_path / "index.html").write_text(
+        html,
+        encoding="utf-8",
+    )
+
+    (tmp_path / "style.css").write_text(
+        ".card { color: red; }",
+        encoding="utf-8",
+    )
+
+    project = ProjectInventory(
+        tmp_path,
+    ).scan()
+
+    max_file_size_mb = (
+        len(html_prefix.encode("utf-8"))
+        / (1024 * 1024)
+    )
+
+    pipeline = make_pipeline(
+        project,
+        source_loader=SourceLoader(
+            max_file_size_mb=max_file_size_mb,
+        ),
+    )
+
+    result = pipeline.run()
+
+    css_file = project.get_by_relative_path(
+        "style.css",
+    )
+
+    html_file = project.get_by_relative_path(
+        "index.html",
+    )
+
+    assert css_file is not None
+    assert html_file is not None
+
+    assert any(
+        diagnostic.severity == "warning"
+        and "truncated" in diagnostic.message.lower()
+        and diagnostic.source is html_file
+        for diagnostic in result.diagnostics
+    )
+
+    usages = result.selector_usage.usages_for(
+        css_file,
+    )
+
+    assert len(usages) == 1
+    assert usages[0].selector == ".card"
+    assert usages[0].state is UsageState.UNKNOWN
+
+
+def test_pipeline_keeps_selector_usage_found_before_html_truncation(
+    tmp_path: Path,
+) -> None:
+    html_prefix = '<main><div class="card"></div>'
+    html_tail = '<div class="other"></div></main>'
+    html = html_prefix + html_tail
+
+    (tmp_path / "index.html").write_text(
+        html,
+        encoding="utf-8",
+    )
+
+    (tmp_path / "style.css").write_text(
+        ".card { color: red; }",
+        encoding="utf-8",
+    )
+
+    project = ProjectInventory(
+        tmp_path,
+    ).scan()
+
+    max_file_size_mb = (
+        len(html_prefix.encode("utf-8"))
+        / (1024 * 1024)
+    )
+
+    pipeline = make_pipeline(
+        project,
+        source_loader=SourceLoader(
+            max_file_size_mb=max_file_size_mb,
+        ),
+    )
+
+    result = pipeline.run()
+
+    css_file = project.get_by_relative_path(
+        "style.css",
+    )
+
+    html_file = project.get_by_relative_path(
+        "index.html",
+    )
+
+    assert css_file is not None
+    assert html_file is not None
+
+    assert any(
+        diagnostic.severity == "warning"
+        and "truncated" in diagnostic.message.lower()
+        and diagnostic.source is html_file
+        for diagnostic in result.diagnostics
+    )
+
+    usages = result.selector_usage.usages_for(
+        css_file,
+    )
+
+    assert len(usages) == 1
+
+    usage = usages[0]
+
+    assert usage.selector == ".card"
+    assert usage.state is UsageState.DEFINITELY_USED
     assert usage.matched_files == (html_file,)

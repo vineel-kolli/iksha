@@ -59,6 +59,10 @@ class AnalysisResult:
         default_factory=dict
     )
 
+    incomplete_files: set[File] = field(
+        default_factory=set
+    )
+
     references: list[Reference] = field(
         default_factory=list
     )
@@ -154,6 +158,8 @@ class AnalysisPipeline:
                 continue
 
             if document.truncated:
+                result.incomplete_files.add(file)
+
                 result.diagnostics.append(
                     Diagnostic(
                         message=(
@@ -215,6 +221,7 @@ class AnalysisPipeline:
         result.selector_usage = self._analyze_selector_usage(
             result.observations,
             result.html_documents,
+            result.incomplete_files,
         )
         entry_points = EntryPointResolver(
             self.project,
@@ -245,6 +252,7 @@ class AnalysisPipeline:
         self,
         observations: list[Observation],
         html_documents: dict[File, HtmlDocument],
+        incomplete_files: set[File],
     ) -> SelectorUsageResult:
         """Correlate CSS selector observations with usage evidence."""
 
@@ -281,6 +289,7 @@ class AnalysisPipeline:
                     selector.value,
                     usage_observations,
                     html_documents=html_documents,
+                    incomplete_files=incomplete_files,
                 )
                 for selector in selectors
             )

@@ -42,6 +42,7 @@ def analyze_selector_usage(
     selector: str,
     observations: list[Observation],
     html_documents: Mapping[File, HtmlDocument] | None = None,
+    incomplete_files: set[File] | None = None,
 ) -> SelectorUsage:
     """
     Correlate one CSS selector with parser observations and HTML DOM matches.
@@ -55,6 +56,7 @@ def analyze_selector_usage(
     Unsupported selector semantics remain UNKNOWN.
     """
     parsed = parse_selector(selector)
+    incomplete_files = incomplete_files or set()
     if not _is_semantically_supported(parsed):
         return SelectorUsage(
             selector=selector,
@@ -71,6 +73,8 @@ def analyze_selector_usage(
             parsed,
             ReferenceKind.CLASS,
             observations,
+            html_documents,
+            incomplete_files,
         )
         return _combine_usage_results(
             usage,
@@ -82,6 +86,8 @@ def analyze_selector_usage(
             parsed,
             ReferenceKind.ID,
             observations,
+            html_documents,
+            incomplete_files,
         )
         return _combine_usage_results(
             usage,
@@ -106,6 +112,15 @@ def analyze_selector_usage(
                 matched_files=_matched_files_from_semantic_matches(
                     semantic_matches,
                 ),
+            )
+
+        if _html_usage_is_incomplete(
+            html_documents,
+            incomplete_files,
+        ):
+            return SelectorUsage(
+                selector=selector,
+                state=UsageState.UNKNOWN,
             )
 
         return SelectorUsage(
@@ -195,6 +210,8 @@ def _analyze_simple_selector(
     selector: ParsedSelector,
     observation_kind: ReferenceKind,
     observations: list[Observation],
+    html_documents: Mapping[File, HtmlDocument] | None,
+    incomplete_files: set[File],
 ) -> SelectorUsage:
     matching = tuple(
         observation
@@ -204,6 +221,15 @@ def _analyze_simple_selector(
     )
 
     if not matching:
+        if _html_usage_is_incomplete(
+            html_documents,
+            incomplete_files,
+        ):
+            return SelectorUsage(
+                selector=selector.raw,
+                state=UsageState.UNKNOWN,
+            )
+
         return SelectorUsage(
             selector=selector.raw,
             state=UsageState.STATICALLY_UNUSED,
@@ -245,3 +271,17 @@ def _usage_state_for_confidence(
         return UsageState.POSSIBLY_USED
 
     return UsageState.UNKNOWN
+
+
+def _html_usage_is_incomplete(
+    html_documents: Mapping[File, HtmlDocument] | None,
+    incomplete_files: set[File],
+) -> bool:
+    """Return whether available HTML evidence is incomplete."""
+    if html_documents is None:
+        return False
+
+    return any(
+        source in incomplete_files
+        for source in html_documents
+    )
