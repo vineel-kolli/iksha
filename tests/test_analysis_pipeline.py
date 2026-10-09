@@ -762,3 +762,112 @@ def test_pipeline_correlates_css_selector_with_javascript_dom_selector(
         and evidence.value == ".card"
         for evidence in usage.evidence
     )
+
+
+def test_pipeline_correlates_css_selector_with_php_template_usage(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "index.php").write_text(
+        '<div class="card">Product</div>',
+        encoding="utf-8",
+    )
+
+    (tmp_path / "style.css").write_text(
+        ".card { color: red; }",
+        encoding="utf-8",
+    )
+
+    project = ProjectInventory(tmp_path).scan()
+    pipeline = make_pipeline(project)
+
+    result = pipeline.run()
+
+    css_file = project.get_by_relative_path("style.css")
+    php_file = project.get_by_relative_path("index.php")
+
+    assert css_file is not None
+    assert php_file is not None
+
+    usages = result.selector_usage.usages_for(css_file)
+
+    assert len(usages) == 1
+    assert usages[0].selector == ".card"
+    assert usages[0].state is UsageState.DEFINITELY_USED
+    assert php_file in usages[0].matched_files
+
+
+
+def test_pipeline_preserves_php_dependencies_and_template_usage(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "index.php").write_text(
+        '<?php require "header.php"; ?>\n'
+        '<div class="card">Product</div>',
+        encoding="utf-8",
+    )
+
+    (tmp_path / "header.php").write_text(
+        "<header>Site</header>",
+        encoding="utf-8",
+    )
+
+    (tmp_path / "style.css").write_text(
+        ".card { color: red; }",
+        encoding="utf-8",
+    )
+
+    project = ProjectInventory(tmp_path).scan()
+    pipeline = make_pipeline(project)
+
+    result = pipeline.run()
+
+    css_file = project.get_by_relative_path("style.css")
+    php_file = project.get_by_relative_path("index.php")
+    header_file = project.get_by_relative_path("header.php")
+
+    assert css_file is not None
+    assert php_file is not None
+    assert header_file is not None
+
+    usages = result.selector_usage.usages_for(css_file)
+
+    assert len(usages) == 1
+    assert usages[0].selector == ".card"
+    assert usages[0].state is UsageState.DEFINITELY_USED
+    assert php_file in usages[0].matched_files
+
+    assert any(
+        reference.source is php_file
+        and reference.target is header_file
+        and reference.resolved
+        for reference in result.references
+    )
+
+
+def test_pipeline_does_not_treat_php_string_as_template_markup(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "index.php").write_text(
+        '<?php $template = \'<div class="card">Product</div>\'; ?>',
+        encoding="utf-8",
+    )
+
+    (tmp_path / "style.css").write_text(
+        ".card { color: red; }",
+        encoding="utf-8",
+    )
+
+    project = ProjectInventory(tmp_path).scan()
+    pipeline = make_pipeline(project)
+
+    result = pipeline.run()
+
+    css_file = project.get_by_relative_path("style.css")
+
+    assert css_file is not None
+
+    usages = result.selector_usage.usages_for(css_file)
+
+    assert len(usages) == 1
+    assert usages[0].selector == ".card"
+    assert usages[0].state is UsageState.STATICALLY_UNUSED

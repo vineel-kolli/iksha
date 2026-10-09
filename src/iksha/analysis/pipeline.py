@@ -174,6 +174,7 @@ class AnalysisPipeline:
                 file,
                 document,
             )
+
             if file.file_type == "html":
                 result.html_documents[file] = (
                     parser.parse_document(
@@ -181,6 +182,30 @@ class AnalysisPipeline:
                         document,
                     )
                 )
+
+            elif file.file_type == "php":
+                html_parser = self.parser_registry.get("html")
+
+                if html_parser is not None:
+                    html_result = html_parser.parse(
+                        file,
+                        document,
+                    )
+
+                    parse_result.observations.extend(
+                        html_result.observations
+                    )
+                    parse_result.diagnostics.extend(
+                        html_result.diagnostics
+                    )
+
+                    result.html_documents[file] = (
+                        html_parser.parse_document(
+                            file,
+                            document,
+                        )
+                    )
+
             result.diagnostics.extend(
                 parse_result.diagnostics
             )
