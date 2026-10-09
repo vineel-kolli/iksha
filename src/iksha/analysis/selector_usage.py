@@ -324,10 +324,16 @@ def _html_usage_is_incomplete(
     incomplete_files: set[File],
 ) -> bool:
     """Return whether available HTML evidence is incomplete."""
-    if html_documents is None:
-        return False
+    incomplete_html_sources = {
+        source
+        for source in incomplete_files
+        if source.file_type in {"html", "php"}
+    }
 
-    return any(
-        source in incomplete_files
-        for source in html_documents
+    if html_documents is None:
+        return bool(incomplete_html_sources)
+
+    return bool(
+        incomplete_html_sources
+        or incomplete_files.intersection(html_documents)
     )

@@ -145,6 +145,8 @@ class AnalysisPipeline:
             document = self.source_loader.load(file)
 
             if not document.success:
+                result.incomplete_files.add(file)
+
                 result.diagnostics.append(
                     Diagnostic(
                         message=(

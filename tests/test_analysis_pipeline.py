@@ -871,3 +871,35 @@ def test_pipeline_does_not_treat_php_string_as_template_markup(
     assert len(usages) == 1
     assert usages[0].selector == ".card"
     assert usages[0].state is UsageState.STATICALLY_UNUSED
+
+
+def test_pipeline_returns_unknown_when_html_source_cannot_be_loaded(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "index.html").write_text(
+        '<div class="card">Product</div>',
+        encoding="utf-8",
+    )
+
+    (tmp_path / "style.css").write_text(
+        ".card { color: red; }",
+        encoding="utf-8",
+    )
+
+    project = ProjectInventory(tmp_path).scan()
+    html_file = project.get_by_relative_path("index.html")
+    css_file = project.get_by_relative_path("style.css")
+
+    assert html_file is not None
+    assert css_file is not None
+
+    html_file.path.unlink()
+
+    pipeline = make_pipeline(project)
+    result = pipeline.run()
+
+    usages = result.selector_usage.usages_for(css_file)
+
+    assert len(usages) == 1
+    assert usages[0].selector == ".card"
+    assert usages[0].state is UsageState.UNKNOWN
