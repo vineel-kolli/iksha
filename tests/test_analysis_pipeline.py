@@ -722,3 +722,43 @@ def test_pipeline_keeps_selector_usage_found_before_html_truncation(
     assert usage.selector == ".card"
     assert usage.state is UsageState.DEFINITELY_USED
     assert usage.matched_files == (html_file,)
+
+
+def test_pipeline_correlates_css_selector_with_javascript_dom_selector(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "app.js").write_text(
+        'document.querySelector(".card");',
+        encoding="utf-8",
+    )
+
+    (tmp_path / "style.css").write_text(
+        ".card { color: red; }",
+        encoding="utf-8",
+    )
+
+    project = ProjectInventory(tmp_path).scan()
+    pipeline = make_pipeline(project)
+
+    result = pipeline.run()
+
+    css_file = project.get_by_relative_path("style.css")
+    js_file = project.get_by_relative_path("app.js")
+
+    assert css_file is not None
+    assert js_file is not None
+
+    usages = result.selector_usage.usages_for(css_file)
+
+    assert len(usages) == 1
+
+    usage = usages[0]
+
+    assert usage.selector == ".card"
+    assert usage.state is UsageState.DEFINITELY_USED
+    assert any(
+        evidence.kind is ReferenceKind.DOM_SELECTOR
+        and evidence.source is js_file
+        and evidence.value == ".card"
+        for evidence in usage.evidence
+    )

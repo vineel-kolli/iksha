@@ -259,10 +259,17 @@ class AnalysisPipeline:
         usage_observations = [
             observation
             for observation in observations
-            if observation.kind in {
-                ReferenceKind.CLASS,
-                ReferenceKind.ID,
-            }
+            if (
+                observation.kind in {
+                    ReferenceKind.CLASS,
+                    ReferenceKind.ID,
+                }
+                or (
+                    observation.kind is ReferenceKind.DOM_SELECTOR
+                    and observation.source is not None
+                    and observation.source.file_type != "css"
+                )
+            )
         ]
 
         result: dict[File, tuple[SelectorUsage, ...]] = {}
